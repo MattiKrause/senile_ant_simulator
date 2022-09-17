@@ -7,17 +7,33 @@ use winit::dpi::{LogicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop};
 use winit::window::WindowBuilder;
+use crate::ant_sim::{AntSimConfig, AntSimulator};
 
-use crate::ant_sim::{Ant, AntState, simple_hash};
-use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, AntSimulator};
+use crate::ant_sim_ant::{Ant, AntState, simple_hash};
+use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use crate::ant_sim_frame_impl::AntSimVecImpl;
 
 mod ant_sim_frame;
-mod ant_sim;
+mod ant_sim_ant;
 mod ant_sim_frame_impl;
+mod ant_sim;
 
 const WIDTH: u32 = 255;
 const HEIGHT: u32 = 255;
+const HAUL_AMOUNT: u8 = 20;
+const DECAY_RATE: u8 = 2;
+const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(200);
+
+static POINTS3: [(f64, f64); 8] = [
+    (3.0, 0.0),
+    (2.0121320343559643, 2.1213203435596424),
+    (0.0, 3.0),
+    (-2.1213203435596424, 2.121320343559643),
+    (-3.0, 0.0),
+    (-2.121320343559643, -2.1213203435596424),
+    (0.0, -3.0),
+    (2.121320343559642, -2.121320343559643),
+];
 
 fn main() {
     let event_loop = EventLoop::new();
@@ -49,12 +65,17 @@ fn main() {
     sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }), AntSimCell::Home);
     sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }), AntSimCell::Food { amount: u8::MAX });
     sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }), AntSimCell::Food { amount: u8::MAX });
+    let sim_config = AntSimConfig {
+        distance_points: Box::new(POINTS3),
+        haul_amount: HAUL_AMOUNT,
+        decay_rate: DECAY_RATE,
+    };
     let sim = AntSimulator {
         sim,
         ants,
         seed: 43,
-        decay_rate: 2,
-        decay_step: 0
+        decay_step: 0,
+        config: sim_config
     };
     main_loop(event_loop, screen, sim);
 }
@@ -62,7 +83,7 @@ fn main() {
 fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<AntSimVecImpl>) {
     let state = Mutex::new((Box::new(state.clone()), Box::new(state)));
     let state = &*Box::leak(Box::new(state));
-    let threshold = Duration::from_millis(500);
+    let threshold = DEFAULT_FRAME_LEN;
     let producer_patience = Duration::from_millis(10);
     let proxy = event_loop.create_proxy();
     let proceed = Condvar::new();
@@ -162,7 +183,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
         let color = match ant.state(){
             AntState::Foraging => [0xFF, 0xFF, 0xFF, 0xFF],
             AntState::Hauling { amount }=> {
-                let amount  = *amount * 6;
+                let amount  = *amount * ((u8::MAX / 2) / sim.config.haul_amount);
                 [0xFF - amount, 0xFF, 0xFF - amount, 0xFF]
             }
         };

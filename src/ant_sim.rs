@@ -1,145 +1,121 @@
-use crate::ant_sim_frame::{AntSim, Neighbors, AntSimCell};
+use crate::{Ant, AntSim, AntSimCell, AntState};
+use crate::ant_sim_frame::NonMaxU8;
 
-#[derive(Debug)]
-pub struct Ant<A: AntSim + ?Sized> {
-    position: A::Position,
-    come_from: A::Position,
-    state: AntState,
-    explore_weight: f64
+#[derive(Clone)]
+pub struct AntSimulator<A: AntSim> {
+    pub sim: A,
+    pub ants: Vec<Ant<A>>,
+    pub seed: u64,
+    pub decay_step: u8,
+    pub config: AntSimConfig
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum AntState {
-    Foraging, Hauling { amount: u8 }
+#[derive(Clone, Debug)]
+pub struct AntSimConfig {
+    pub distance_points: Box<[(f64, f64); 8]>,
+    pub haul_amount: u8,
+    pub decay_rate: u8,
 }
 
-impl<A: AntSim + ?Sized> Clone for Ant<A> where A::Position: Clone {
-    fn clone(&self) -> Self {
-        Self {
-            position: self.position.clone(),
-            come_from: self.come_from.clone(),
-            state: self.state.clone(),
-            explore_weight: self.explore_weight
+//calculated using the equidistant_points function, but as of yet, rust does not support const floating point math
+static _POINTS: [(f64, f64); 8] = [
+    (1.0, 0.0),
+    (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (0.0, 1.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (-1.0, 0.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
+    (-0.0, -1.0),
+    (std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
+];
+/*
+const fn equidistant_points<const N: usize>() -> [(f64, f64); N] {
+    let mut res = [(0.0,0.0); N];
+    let mut p = 0;
+    let angle_diff = (2.0 * std::f64::consts::PI) / (N as f64);
+    while p < N {
+        let angle = angle_diff * p as f64;
+        res[p] = (angle.cos(), angle.sin());
+    }
+    res
+}
+*/
+
+impl<A: AntSim> AntSimulator<A> {
+    pub fn update(&self, update_into: &mut AntSimulator<A>) {
+        assert!(self.sim.check_compatible(&update_into.sim));
+        update_into.ants.clone_from_slice(&self.ants);
+        Self::decay_pheromones(&self.sim, &mut update_into.sim, self.decay_step, self.config.decay_rate);
+        self.update_ants(&mut update_into.ants, &mut update_into.sim);
+        Self::update_ant_trail(&self.ants, &mut update_into.sim);
+        update_into.decay_step = self.decay_step;
+    }
+    fn update_ants(&self, ants: &mut [Ant<A>], update_into: &mut A) {
+        fn take_food(amount: u8, haul_amount: u8) -> (u8, AntSimCell) {
+            if amount > haul_amount {
+                (haul_amount, AntSimCell::Food { amount: amount - haul_amount })
+            } else {
+                (amount, AntSimCell::Path { pheromone_food: NonMaxU8::new(0), pheromone_home: NonMaxU8::new(0) })
+            }
+        }
+        for (i, ant) in ants.iter_mut().enumerate() {
+            let state = ant.state_mut().clone();
+            match (self.sim.cell(ant.position()).unwrap(), state) {
+                (AntSimCell::Food { amount }, AntState::Foraging) => {
+                    let (haul_amount, new_cell) = take_food(amount, self.config.haul_amount);
+                    *ant.state_mut() = AntState::Hauling { amount: haul_amount };
+                    update_into.set_cell(ant.position(), new_cell);
+                }
+                (AntSimCell::Home, AntState::Hauling { .. }) => {
+                    *ant.state_mut() = AntState::Foraging;
+                }
+                _ => {
+                    let seed = self.seed + i as u64;
+                    ant.move_to_next(seed, self.config.distance_points.as_ref(), &self.sim);
+                }
+            }
         }
     }
-}
-
-impl<A: AntSim + ?Sized> Ant<A> {
-    pub fn new_default(position: A::Position, explore_weight: f64) -> Self {
-        Self {
-            come_from: position.clone(),
-            state: AntState::Foraging,
-            position,
-            explore_weight
+    fn decay_pheromones(from: &A, on_sim: &mut A, mut decay_step: u8, decay_rate: u8) {
+        fn decay_path(p_food: NonMaxU8, p_home: NonMaxU8, decay_by: u8) -> AntSimCell {
+            AntSimCell::Path {
+                pheromone_food: p_food.dec_by(decay_by),
+                pheromone_home: p_home.dec_by(decay_by),
+            }
         }
+        from.cells()
+            .map(|(cell, pos): (AntSimCell, A::Position)| {
+                decay_step = (decay_step + 1) % decay_rate;
+                match cell {
+                    AntSimCell::Path { pheromone_food, pheromone_home } => {
+                        let decay_by = if decay_step == 0 { 1 } else { 0 };
+                        let cell = decay_path(pheromone_food, pheromone_home, decay_by);
+                        (cell, pos)
+                    }
+                    other => (other, pos)
+                }
+            })
+            .for_each(|(cell, pos)| {
+                on_sim.set_cell(&pos, cell);
+            });
     }
-    pub fn position(&self) -> &A::Position {
-        &self.position
-    }
-
-    pub fn state(&self) -> &AntState {
-        &self.state
-    }
-
-    pub fn state_mut(&mut self) -> &mut AntState {
-        &mut self.state
-    }
-
-    pub fn move_to_next(&mut self, seed: u64, points: &[(f64, f64); 8], on: &A) {
-        let neighbors = on.neighbors(&self.position).expect("could not make neighbors");
-        let mut new_position = None;
-        let mut new_score = f64::NEG_INFINITY;
-        let come_from = map_come_from_to_points(&neighbors, &self.come_from, points).unwrap_or((0.0, 0.0));
-        let p_weight = match self.state {
-            AntState::Foraging => (1.0, -0.25),
-            AntState::Hauling { .. } => (-0.25, 1.0)
-        };
-        macro_rules! max_pos {
-            (($n: ident, $i: literal)) => {
-                if let Some(pos) = neighbors.$n {
-                    let cell = on.cell(&pos).unwrap();
-                    let this_point = points[$i];
-                    let score = self.score_position(&pos, cell, come_from, this_point, p_weight, seed);
-                    match score {
-                        Some(score) if score > new_score => {
-                            new_position = Some(pos);
-                            new_score = score;
+    fn update_ant_trail(old_ants: &[Ant<A>], update_into: &mut A) {
+        for ant in old_ants {
+            let cell = update_into.cell(ant.position()).unwrap();
+            let new_cell = match cell {
+                AntSimCell::Path { pheromone_food, pheromone_home } => {
+                    match ant.state() {
+                        AntState::Foraging => {
+                            AntSimCell::Path { pheromone_food, pheromone_home: NonMaxU8::new(u8::MAX - 1) }
                         }
-                        _ => {}
+                        AntState::Hauling { .. } => {
+                            AntSimCell::Path { pheromone_food: NonMaxU8::new(u8::MAX - 1), pheromone_home }
+                        }
                     }
                 }
+                old => old
             };
-            (($n: ident, $i: literal), $(($rn: ident, $ri: literal)),+) => {
-                max_pos!(($n, $i));
-                max_pos!($(($rn, $ri)),*);
-            }
+            update_into.set_cell(ant.position(), new_cell);
         }
-        max_pos!((up, 0), (up_left, 1), (left, 2), (down_left, 3), (down, 4), (down_right, 5), (right, 6), (up_right, 7));
-        self.come_from = std::mem::replace(&mut self.position, new_position.unwrap());
-    }
-
-    fn score_position(&self, pos: &A::Position, cell: AntSimCell, come_from: (f64, f64), this_point: (f64, f64), p_weight: (f64, f64), seed: u64, ) -> Option<f64> {
-        let p_score = match cell {
-            AntSimCell::Path { pheromone_food, pheromone_home } => {
-                f64::from(pheromone_food.get()) * p_weight.0 + f64::from(pheromone_home.get()) * p_weight.1
-            }
-            AntSimCell::Blocker => {
-                return None;
-            }
-            AntSimCell::Home => {
-                if let AntState::Hauling { .. } = self.state { 510.0 } else { 0.0 }
-            }
-            AntSimCell::Food { amount } => {
-                if let AntState::Foraging= self.state { f64::from(amount) } else { 0.0 }
-            }
-        };
-        let explore_score = f64::from(simple_hash2(pos.clone().into(), seed));
-        let come_from_distance = {
-            let dist = (this_point.0 - come_from.0, this_point.1 - come_from.1);
-            ((dist.0 * dist.0) + (dist.1 * dist.1)).sqrt()
-        };
-        let score = (1.0- self.explore_weight) * p_score + self.explore_weight * explore_score;
-        let score = score * (come_from_distance + 1.0);
-        Some(score)
     }
 }
-
-fn map_come_from_to_points<A: AntSim + ?Sized>(neighbors: &Neighbors<A>, find: &A::Position, points: &[(f64, f64); 8]) -> Option<(f64, f64)> {
-    macro_rules! find_come_from {
-            (($n: ident, $i: literal)) =>{
-                if matches!(&neighbors.$n, Some(pos) if pos == find){
-                    return Some(points[$i]);
-                }
-            };
-            (($n: ident, $i: literal), $(($rn: ident, $ri: literal)),+) => {
-                find_come_from!(($n, $i));
-                find_come_from!($(($rn, $ri)),*);
-            }
-    }
-    find_come_from!((up, 0), (up_left, 1), (left, 2), (down_left, 3), (down, 4), (down_right, 5), (right, 6), (up_right, 7));
-    return None;
-}
-
-pub fn simple_hash(a: u64, mut b: u64) -> u64 {
-    b ^= 0xF7eA_A097_91CE_5D9A;
-    let mut r = a.wrapping_mul(b);
-    r ^= r >> 32;
-    r = r.wrapping_add((!r) >> 4);
-    r = r.wrapping_mul(0xDEF8_9E5D_254A_A78C);
-    r ^= r >> 24;
-    r
-}
-
-pub fn simple_hash2(a: u64, mut b: u64) -> u8 {
-    b ^= 0xF7eA_A097_91CE_5D9A;
-    let mut r = a.wrapping_mul(b);
-    r ^= r >> 32;
-    r = r.wrapping_add((!r) >> 4);
-    r = r.wrapping_mul(0xDEF8_9E5D_254A_A78C);
-    r ^= r >> 32;
-    r ^= r >> 16;
-    r ^= r >> 8;
-    r as u8
-}
-
-

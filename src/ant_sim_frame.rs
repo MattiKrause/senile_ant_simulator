@@ -12,6 +12,7 @@ pub struct Neighbors<A: AntSim + ?Sized> {
     pub down_right: Option<A::Position>,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct AntPosition {
     pub x: usize,
     pub y: usize,

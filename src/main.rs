@@ -23,6 +23,7 @@ const HEIGHT: u32 = 255;
 const HAUL_AMOUNT: u8 = 20;
 const DECAY_RATE: u8 = 2;
 const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(200);
+const SEED: u64 = 42;
 
 static POINTS3: [(f64, f64); 8] = [
     (3.0, 0.0),
@@ -67,13 +68,14 @@ fn main() {
     sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }), AntSimCell::Food { amount: u8::MAX });
     let sim_config = AntSimConfig {
         distance_points: Box::new(POINTS3),
-        haul_amount: HAUL_AMOUNT,
-        decay_rate: DECAY_RATE,
+        food_haul_amount: HAUL_AMOUNT,
+        pheromone_decay_rate: DECAY_RATE,
+        seed_step: 1
     };
     let sim = AntSimulator {
         sim,
         ants,
-        seed: 43,
+        seed: SEED,
         decay_step: 0,
         config: sim_config
     };
@@ -183,7 +185,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
         let color = match ant.state(){
             AntState::Foraging => [0xFF, 0xFF, 0xFF, 0xFF],
             AntState::Hauling { amount }=> {
-                let amount  = *amount * ((u8::MAX / 2) / sim.config.haul_amount);
+                let amount  = *amount * ((u8::MAX / 2) / sim.config.food_haul_amount);
                 [0xFF - amount, 0xFF, 0xFF - amount, 0xFF]
             }
         };

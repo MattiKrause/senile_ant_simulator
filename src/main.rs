@@ -71,7 +71,7 @@ fn main() {
     };
     let mut sim = AntSimVecImpl::new(WIDTH as usize, HEIGHT as usize).unwrap();
     let ants = vec![
-        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 100
+        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 1
     ];
     sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), AntSimCell::Home);
     sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u8::MAX });

@@ -1,5 +1,5 @@
 use std::hash::Hash;
-pub use non_max::NonMaxU8;
+pub use non_max::*;
 
 #[derive(Debug)]
 pub struct Neighbors<A: AntSim + ?Sized> {
@@ -20,29 +20,30 @@ pub struct AntPosition {
 }
 
 mod non_max {
+
     #[repr(transparent)]
     #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-    pub struct NonMaxU8(u8);
+    pub struct NonMaxU16(u16);
 
-    impl NonMaxU8 {
-        pub const fn new(val: u8) -> Self {
+    impl NonMaxU16 {
+        pub const fn new(val: u16) -> Self {
             match Self::try_new(val) {
                 Ok(val) => val,
-                Err(_) => panic!("val is u8::MAX!"),
+                Err(_) => panic!("val is u16::MAX!"),
             }
         }
-        pub const fn try_new(val: u8) -> Result<Self, ()> {
-            if val < u8::MAX {
-                Ok(NonMaxU8(val))
+        pub const fn try_new(val: u16) -> Result<Self, ()> {
+            if val < u16::MAX {
+                Ok(NonMaxU16(val))
             } else {
                 Err(())
             }
         }
-        pub const fn get(self) -> u8 {
+        pub const fn get(self) -> u16 {
             self.0
         }
-        pub const fn dec_by(self, other: u8) -> Self {
-            NonMaxU8(self.0.saturating_sub(other))
+        pub const fn dec_by(self, other: u16) -> Self {
+            NonMaxU16(self.0.saturating_sub(other))
         }
     }
 }
@@ -50,13 +51,13 @@ mod non_max {
 #[derive(Clone)]
 pub enum AntSimCell {
     Path {
-        pheromone_food: NonMaxU8,
-        pheromone_home: NonMaxU8,
+        pheromone_food: NonMaxU16,
+        pheromone_home: NonMaxU16,
     },
     Blocker,
     Home,
     Food {
-        amount: u8,
+        amount: u16,
     },
 }
 

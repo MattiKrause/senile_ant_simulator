@@ -9,7 +9,7 @@ use winit::event_loop::{EventLoop};
 use winit::window::WindowBuilder;
 use crate::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer, neighbors};
 
-use crate::ant_sim_ant::{Ant, AntState, simple_hash};
+use crate::ant_sim_ant::{Ant, AntState};
 use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use crate::ant_sim_frame_impl::AntSimVecImpl;
 
@@ -20,12 +20,12 @@ mod ant_sim;
 
 const WIDTH: u32 = 255;
 const HEIGHT: u32 = 255;
-const HAUL_AMOUNT: u8 = 20;
-const DECAY_RATE: u8 = 2;
+const HAUL_AMOUNT: u16 = 20;
+const DECAY_RATE: u16 = u16::MAX / 382;
 const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(200);
 const SEED: u64 = 42;
 const VISUAL_RANGE: u8 = 3;
-static POINTS: &'static [(f64, f64); 8] = &POINTS3;
+static POINTS: &[(f64, f64); 8] = &POINTS3;
 
 static POINTS3: [(f64, f64); 8] = [
     (3.0, 0.0),
@@ -38,7 +38,7 @@ static POINTS3: [(f64, f64); 8] = [
     (2.121320343559642, -2.121320343559643),
 ];
 
-static POINTS1: [(f64, f64); 8] = [
+static _POINTS1: [(f64, f64); 8] = [
     (1.0, 0.0),
     (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
     (0.0, 1.0),
@@ -74,12 +74,12 @@ fn main() {
         Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 1
     ];
     sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), AntSimCell::Home);
-    sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u8::MAX });
-    sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }).unwrap(), AntSimCell::Food { amount: u8::MAX });
+    sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
+    sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
     let sim_config = AntSimConfig {
-        distance_points: Box::new(POINTS.clone()),
+        distance_points: Box::new(*POINTS),
         food_haul_amount: HAUL_AMOUNT,
-        pheromone_decay_rate: DECAY_RATE,
+        pheromone_decay_amount: DECAY_RATE,
         seed_step: 17,
         visual_range: AntVisualRangeBuffer::new(VISUAL_RANGE as usize)
     };
@@ -87,7 +87,6 @@ fn main() {
         sim,
         ants,
         seed: SEED,
-        decay_step: 0,
         config: sim_config
     };
     main_loop(event_loop, screen, sim);
@@ -120,7 +119,7 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
     });
 
     let mut last_loop = Instant::now();
-    event_loop.run(move |a, b, c| {
+    event_loop.run(move |a, _, c| {
         if last_loop.elapsed() > threshold {
             if let Ok(state) = state.try_lock() {
                 last_loop = Instant::now();
@@ -156,19 +155,6 @@ fn pixel_of_pos(frame: &mut [u8], pos: AntPosition) -> &mut [u8] {
     pixel(frame, pix)
 }
 
-fn render_hash(screen: &mut Pixels) {
-    let frame = screen.get_frame();
-    frame
-        .chunks_exact_mut(4)
-        .enumerate()
-        .map(|(i, p)| (simple_hash((i / u8::MAX as usize) as u64, (i % u8::MAX as usize) as u64), p))
-        .map(|(i, p)| (i as u8, p))
-        .for_each(|(h, p)| {
-            p.copy_from_slice(&[h, h, h, 0xFF]);
-        });
-    screen.render().unwrap();
-}
-
 fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
     let frame = on.get_frame();
     for cell in sim.sim.cells() {
@@ -177,7 +163,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
         let pixel = pixel_of_pos(frame, pos);
         let color = match cell {
             AntSimCell::Path { pheromone_food, pheromone_home } => {
-                [pheromone_food.get(), 0, pheromone_home.get(), 0xFF]
+                [(pheromone_food.get() / 256u16) as u8, 0, (pheromone_home.get() / 256u16) as u8, 0xFF]
             }
             AntSimCell::Blocker => {
                 [0xAF, 0xAF, 0xAF, 0xFF]
@@ -186,7 +172,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
                 [0xFF, 0xFF, 0x0F, 0xFF]
             }
             AntSimCell::Food { amount } => {
-                [0, amount, 0, 0xFF]
+                [0, (amount / 256u16) as u8, 0, 0xFF]
             }
         };
         pixel.copy_from_slice(&color);
@@ -196,7 +182,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
         let color = match ant.state(){
             AntState::Foraging => [0xFF, 0xFF, 0xFF, 0xFF],
             AntState::Hauling { amount }=> {
-                let amount  = *amount * ((u8::MAX / 2) / sim.config.food_haul_amount);
+                let amount  = (*amount / 256u16) as u8 * (u8::MAX / 2);
                 [0xFF - amount, 0xFF, 0xFF - amount, 0xFF]
             }
         };

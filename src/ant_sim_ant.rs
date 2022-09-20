@@ -1,5 +1,6 @@
 use std::hash::{Hash, Hasher};
-use crate::ant_sim_frame::{AntSim, Neighbors, AntSimCell};
+use std::ops::Not;
+use crate::ant_sim_frame::{AntSim, AntSimCell};
 use crate::neighbors;
 
 #[derive(Debug)]
@@ -13,7 +14,7 @@ pub struct Ant<A: AntSim + ?Sized> {
 #[derive(Copy, Clone, Debug)]
 pub enum AntState {
     Foraging,
-    Hauling { amount: u8 },
+    Hauling { amount: u16 },
 }
 
 impl<A: AntSim + ?Sized> Clone for Ant<A> where A::Position: Clone {
@@ -54,7 +55,7 @@ impl<A: AntSim + ?Sized> Ant<A> {
     }
 
     pub fn move_to_next2<H: Hasher + Default>(&mut self, seed: u64, points: &[(f64, f64); 8], on: &A, buffers: &mut [&mut [Option<A::Position>]]) {
-        assert!(buffers.len() >= 1);
+        assert!(buffers.is_empty().not());
         assert_eq!(buffers[0].len(), 8);
 
         neighbors(on, &self.position, buffers);
@@ -145,7 +146,7 @@ impl<A: AntSim + ?Sized> Ant<A> {
             let avg_score = (p_score + f64::from(special_count)) / count;
             score += avg_score / f64::from(buffers.len() as u32);
         }
-        let explore_score = f64::from(simple_hash2::<A, H>(&score_pos, seed));
+        let explore_score = f64::from(simple_hash2::<A, H>(score_pos, seed));
         score = score * (1.0 - self.explore_weight) + self.explore_weight * explore_score;
         let dist_from_last_pos = dist_of(this_points, last_pos);
         score *= dist_from_last_pos;
@@ -153,25 +154,14 @@ impl<A: AntSim + ?Sized> Ant<A> {
     }
 }
 
-pub fn simple_hash(a: u64, mut b: u64) -> u64 {
-    b ^= 0xF7eA_A097_91CE_5D9A;
-    let mut r = a.wrapping_mul(b);
-    r ^= r >> 32;
-    r = r.wrapping_add((!r) >> 4);
-    r = r.wrapping_mul(0xDEF8_9E5D_254A_A78C);
-    r ^= r >> 24;
-    r
-}
-
-pub fn simple_hash2<A: AntSim + ?Sized, H: Hasher + Default>(a: &A::Position, b: u64) -> u8 {
+pub fn simple_hash2<A: AntSim + ?Sized, H: Hasher + Default>(a: &A::Position, b: u64) -> u16 {
     let mut h = H::default();
     a.hash(&mut h);
     b.hash(&mut h);
     let mut r = h.finish();
     r ^= r >> 32;
     r ^= r >> 16;
-    r ^= r >> 8;
-    return r as u8;
+    return r as u16;
     /*
     b ^= 0xF7eA_A097_91CE_5D9A;
     let mut r = a.wrapping_mul(b);

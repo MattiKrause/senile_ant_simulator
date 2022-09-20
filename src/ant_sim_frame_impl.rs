@@ -1,4 +1,4 @@
-use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, Neighbors, NonMaxU8};
+use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, Neighbors, NonMaxU16};
 
 #[derive(Clone)]
 pub struct AntSimVecImpl {
@@ -12,16 +12,16 @@ pub struct AntPositionImpl(usize);
 
 #[derive(Clone)]
 struct AntSimCellImpl  {
-    p1: u8, p2: u8
+    p1: u16, p2: u16
 }
 
 impl AntSimCellImpl {
     pub fn to_cell(&self) -> AntSimCell {
-        if self.p2 == u8::MAX {
+        if self.p2 == u16::MAX {
             AntSimCell::Food {
                 amount: self.p1
             }
-        } else if self.p1 == u8::MAX {
+        } else if self.p1 == u16::MAX {
             debug_assert!(self.p2 < 2);
             if self.p1 == 0 {
                 AntSimCell::Blocker
@@ -30,8 +30,8 @@ impl AntSimCellImpl {
             }
         } else {
             AntSimCell::Path {
-                pheromone_food: NonMaxU8::new(self.p1),
-                pheromone_home: NonMaxU8::new(self.p2)
+                pheromone_food: NonMaxU16::new(self.p1),
+                pheromone_home: NonMaxU16::new(self.p2)
             }
         }
     }
@@ -44,26 +44,20 @@ impl AntSimCellImpl {
                 }
             }
             AntSimCell::Blocker => Self {
-                p1: u8::MAX,
+                p1: u16::MAX,
                 p2: 0
             },
             AntSimCell::Home => Self {
-                p1: u8::MAX,
+                p1: u16::MAX,
                 p2: 1
             },
             AntSimCell::Food { amount } => {
                 Self {
                     p1: amount,
-                    p2: u8::MAX
+                    p2: u16::MAX
                 }
             }
         }
-    }
-}
-
-impl Into<u64> for AntPositionImpl {
-    fn into(self) -> u64 {
-        self.0 as u64
     }
 }
 
@@ -74,7 +68,7 @@ impl AntSimVecImpl {
         }
         let mut contains = Vec::with_capacity(width * height);
         for _ in 0..(height * width) {
-            contains.push(AntSimCellImpl::from_cell(AntSimCell::Path { pheromone_food: NonMaxU8::new(0), pheromone_home: NonMaxU8::new(0) }));
+            contains.push(AntSimCellImpl::from_cell(AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) }));
         }
         Ok(Self {
             contains,
@@ -170,7 +164,7 @@ impl <'a> Iterator for CellIterImpl<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let cell = self.sim.contains.get(self.index.0)?;
         let cell = cell.to_cell();
-        let res = Some((cell, self.index.clone()));
+        let res = Some((cell, self.index));
         self.index.0 += 1;
         return res;
     }

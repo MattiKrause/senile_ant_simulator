@@ -1,6 +1,6 @@
 use std::cmp::min;
 use crate::{Ant, AntPosition, AntSim, AntSimCell, AntState};
-use crate::ant_sim_frame::NonMaxU8;
+use crate::ant_sim_frame::{NonMaxU16};
 
 /// Contains the context of a game execution
 #[derive(Clone)]
@@ -8,7 +8,6 @@ pub struct AntSimulator<A: AntSim> {
     pub sim: A,
     pub ants: Vec<Ant<A>>,
     pub seed: u64,
-    pub decay_step: u8,
     pub config: AntSimConfig<A>
 }
 
@@ -25,9 +24,8 @@ pub struct AntSimConfig<A: AntSim + ?Sized> {
     /// a circle with a different radius can be used
     pub distance_points: Box<[(f64, f64); 8]>,
     /// The amount on ant takes from one food source
-    pub food_haul_amount: u8,
-    /// The rate in which pheromones decay, will decay every 1 tick if set to 1, every 2 ticks when set to 2, etc.
-    pub pheromone_decay_rate: u8,
+    pub food_haul_amount: u16,
+    pub pheromone_decay_amount: u16,
     /// The rate at which the seed advances
     pub seed_step: u64,
     pub visual_range: AntVisualRangeBuffer<A>
@@ -53,9 +51,9 @@ impl <A: AntSim + ?Sized> AntVisualRangeBuffer<A> {
         assert!(self.backing.len() >= Self::expected_size(self.range));
         assert!(write_into.len() <= self.range);
         let mut rem = self.backing.as_mut();
-        for r in 0..write_into.len() {
+        for (r, write_into) in write_into.iter_mut().enumerate() {
             let buf_size = (r + 1) * 8;
-            (write_into[r], rem) = rem.split_at_mut(buf_size);
+            (*write_into, rem) = rem.split_at_mut(buf_size);
         }
     }
     fn expected_size(range: usize) -> usize {
@@ -96,10 +94,9 @@ impl<A: AntSim> AntSimulator<A> {
             visual_buffer.push([].as_mut_slice());
         }
         update_into.config.visual_range.buffers(&mut visual_buffer);
-        Self::decay_pheromones(&self.sim, &mut update_into.sim, self.decay_step, self.config.pheromone_decay_rate);
+        Self::decay_pheromones(&self.sim, &mut update_into.sim, self.config.pheromone_decay_amount);
         self.update_ants(&mut update_into.ants, &mut update_into.sim, &mut visual_buffer);
         Self::update_ant_trail(&self.ants, &mut update_into.sim);
-        update_into.decay_step = (self.decay_step + 1) % self.config.pheromone_decay_rate;
         update_into.seed = self.seed.wrapping_add(self.config.seed_step);
     }
 
@@ -109,15 +106,15 @@ impl<A: AntSim> AntSimulator<A> {
     /// set them to foraging
     /// * otherwise, they try to find their objective, given  by their current state
     fn update_ants(&self, ants: &mut [Ant<A>], update_into: &mut A, visual_buffer: &mut [&mut [Option<A::Position>]]) {
-        fn take_food(amount: u8, haul_amount: u8) -> (u8, AntSimCell) {
+        fn take_food(amount: u16, haul_amount: u16) -> (u16, AntSimCell) {
             if amount > haul_amount {
                 (haul_amount, AntSimCell::Food { amount: amount - haul_amount })
             } else {
-                (amount, AntSimCell::Path { pheromone_food: NonMaxU8::new(0), pheromone_home: NonMaxU8::new(0) })
+                (amount, AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) })
             }
         }
         for (i, ant) in ants.iter_mut().enumerate() {
-            let state = ant.state_mut().clone();
+            let state = *ant.state();
             match (self.sim.cell(ant.position()).unwrap(), state) {
                 (AntSimCell::Food { amount }, AntState::Foraging) => {
                     let (haul_amount, new_cell) = take_food(amount, self.config.food_haul_amount);
@@ -137,8 +134,8 @@ impl<A: AntSim> AntSimulator<A> {
         }
     }
 
-    fn decay_pheromones(from: &A, on_sim: &mut A, mut decay_step: u8, decay_rate: u8) {
-        fn decay_path(p_food: NonMaxU8, p_home: NonMaxU8, decay_by: u8) -> AntSimCell {
+    fn decay_pheromones(from: &A, on_sim: &mut A, decay_amount: u16) {
+        fn decay_path(p_food: NonMaxU16, p_home: NonMaxU16, decay_by: u16) -> AntSimCell {
             AntSimCell::Path {
                 pheromone_food: p_food.dec_by(decay_by),
                 pheromone_home: p_home.dec_by(decay_by),
@@ -146,11 +143,9 @@ impl<A: AntSim> AntSimulator<A> {
         }
         from.cells()
             .map(|(cell, pos): (AntSimCell, A::Position)| {
-                decay_step = (decay_step + 1) % decay_rate;
                 match cell {
                     AntSimCell::Path { pheromone_food, pheromone_home } => {
-                        let decay_by = if decay_step == 0 { 1 } else { 0 };
-                        let cell = decay_path(pheromone_food, pheromone_home, decay_by);
+                        let cell = decay_path(pheromone_food, pheromone_home, decay_amount);
                         (cell, pos)
                     }
                     other => (other, pos)
@@ -167,10 +162,10 @@ impl<A: AntSim> AntSimulator<A> {
                 AntSimCell::Path { pheromone_food, pheromone_home } => {
                     match ant.state() {
                         AntState::Foraging => {
-                            AntSimCell::Path { pheromone_food, pheromone_home: NonMaxU8::new(u8::MAX - 1) }
+                            AntSimCell::Path { pheromone_food, pheromone_home: NonMaxU16::new(u16::MAX - 1) }
                         }
                         AntState::Hauling { .. } => {
-                            AntSimCell::Path { pheromone_food: NonMaxU8::new(u8::MAX - 1), pheromone_home }
+                            AntSimCell::Path { pheromone_food: NonMaxU16::new(u16::MAX - 1), pheromone_home }
                         }
                     }
                 }

@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 pixels = "0.9"
 winit = "0.27.3"
+fasthash = "0.4.0"

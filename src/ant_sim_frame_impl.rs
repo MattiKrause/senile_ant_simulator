@@ -6,7 +6,8 @@ pub struct AntSimVecImpl {
     height: usize,
     width: usize,
 }
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Hash)]
+#[repr(transparent)]
 pub struct AntPositionImpl(usize);
 
 #[derive(Clone)]
@@ -95,11 +96,7 @@ impl AntSim for AntSimVecImpl {
         macro_rules! check_pos {
             ($y: expr, $x: expr) => {
                 {
-                    if $y < self.height && $x < self.width {
-                        Some(self.encode(AntPosition { y: $y, x: $x }))
-                    } else {
-                        None
-                    }
+                    self.encode(AntPosition { y: $y, x: $x })
                 }
             };
         }
@@ -126,9 +123,14 @@ impl AntSim for AntSimVecImpl {
             x: position.0 % self.width
         }
     }
-    fn encode(&self, position: AntPosition) -> AntPositionImpl {
+    fn encode(&self, position: AntPosition) -> Option<AntPositionImpl> {
         let AntPosition { x, y } = position;
-        AntPositionImpl(y * self.width + x)
+        if x < self.width && y < self.height {
+            Some(AntPositionImpl(y * self.width + x))
+        } else {
+            None
+        }
+
     }
 
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell> {
@@ -146,6 +148,14 @@ impl AntSim for AntSimVecImpl {
             sim: self,
             index: AntPositionImpl(0)
         }
+    }
+
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    fn height(&self) -> usize {
+        self.height
     }
 }
 

@@ -1,3 +1,4 @@
+use std::hash::Hash;
 pub use non_max::NonMaxU8;
 
 #[derive(Debug)]
@@ -60,14 +61,16 @@ pub enum AntSimCell {
 }
 
 pub trait AntSim {
-    type Position: Eq + Clone + Into<u64>;
+    type Position: Eq + Clone + Hash;
     type Cells<'a>: Iterator<Item=(AntSimCell, Self::Position)> where Self: 'a;
 
     fn neighbors(&self, position: &Self::Position) -> Result<Neighbors<Self>, ()>;
     fn check_compatible(&self, other: &Self) -> bool;
     fn decode(&self, position: &Self::Position) -> AntPosition;
-    fn encode(&self, position: AntPosition) -> Self::Position;
+    fn encode(&self, position: AntPosition) -> Option<Self::Position>;
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell>;
     fn set_cell(&mut self, position: &Self::Position, cell: AntSimCell);
     fn cells<'a>(&'a self) -> Self::Cells<'a>;
+    fn width(&self) -> usize;
+    fn height(&self) -> usize;
 }

@@ -1,4 +1,5 @@
-use crate::{Ant, AntSim, AntSimCell, AntState};
+use std::cmp::min;
+use crate::{Ant, AntPosition, AntSim, AntSimCell, AntState};
 use crate::ant_sim_frame::NonMaxU8;
 
 /// Contains the context of a game execution
@@ -8,12 +9,12 @@ pub struct AntSimulator<A: AntSim> {
     pub ants: Vec<Ant<A>>,
     pub seed: u64,
     pub decay_step: u8,
-    pub config: AntSimConfig
+    pub config: AntSimConfig<A>
 }
 
 /// The Configuration of a simulation, this should not change over the course of the game
-#[derive(Clone, Debug)]
-pub struct AntSimConfig {
+#[derive(Clone)]
+pub struct AntSimConfig<A: AntSim + ?Sized> {
     /// The ant should prioritise fields in the opposite direction of where it came from.
     /// In order to achieve that, all directions all mapped to a point from the array, then
     /// the overall score of the direction is weighted with distance between the point of the
@@ -29,6 +30,37 @@ pub struct AntSimConfig {
     pub pheromone_decay_rate: u8,
     /// The rate at which the seed advances
     pub seed_step: u64,
+    pub visual_range: AntVisualRangeBuffer<A>
+}
+
+#[derive(Clone, Debug)]
+pub struct AntVisualRangeBuffer<A: AntSim + ?Sized> {
+    backing: Box<[Option<A::Position>]>,
+    range: usize
+}
+
+impl <A: AntSim + ?Sized> AntVisualRangeBuffer<A> {
+    pub fn new(range: usize) -> Self {
+        Self {
+            backing: vec![None; Self::expected_size(range)].into_boxed_slice(),
+            range
+        }
+    }
+    pub fn range(&self) -> usize {
+        self.range
+    }
+    pub fn buffers<'a>(&'a mut self, write_into: &mut [&'a mut [Option<A::Position>]]) {
+        assert!(self.backing.len() >= Self::expected_size(self.range));
+        assert!(write_into.len() <= self.range);
+        let mut rem = self.backing.as_mut();
+        for r in 0..write_into.len() {
+            let buf_size = (r + 1) * 8;
+            (write_into[r], rem) = rem.split_at_mut(buf_size);
+        }
+    }
+    fn expected_size(range: usize) -> usize {
+        ((range * (range + 1)) / 2) * 8
+    }
 }
 
 //calculated using the equidistant_points function, but as of yet, rust does not support const floating point math
@@ -59,10 +91,15 @@ impl<A: AntSim> AntSimulator<A> {
     pub fn update(&self, update_into: &mut AntSimulator<A>) {
         assert!(self.sim.check_compatible(&update_into.sim));
         update_into.ants.clone_from_slice(&self.ants);
+        let mut visual_buffer = Vec::with_capacity(update_into.config.visual_range.range());
+        for _ in 0..update_into.config.visual_range.range() {
+            visual_buffer.push([].as_mut_slice());
+        }
+        update_into.config.visual_range.buffers(&mut visual_buffer);
         Self::decay_pheromones(&self.sim, &mut update_into.sim, self.decay_step, self.config.pheromone_decay_rate);
-        self.update_ants(&mut update_into.ants, &mut update_into.sim);
+        self.update_ants(&mut update_into.ants, &mut update_into.sim, &mut visual_buffer);
         Self::update_ant_trail(&self.ants, &mut update_into.sim);
-        update_into.decay_step = self.decay_step;
+        update_into.decay_step = (self.decay_step + 1) % self.config.pheromone_decay_rate;
         update_into.seed = self.seed.wrapping_add(self.config.seed_step);
     }
 
@@ -71,7 +108,7 @@ impl<A: AntSim> AntSimulator<A> {
     /// * if they brought food to the hive(are standing on a home pixel while in Hauling state),
     /// set them to foraging
     /// * otherwise, they try to find their objective, given  by their current state
-    fn update_ants(&self, ants: &mut [Ant<A>], update_into: &mut A) {
+    fn update_ants(&self, ants: &mut [Ant<A>], update_into: &mut A, visual_buffer: &mut [&mut [Option<A::Position>]]) {
         fn take_food(amount: u8, haul_amount: u8) -> (u8, AntSimCell) {
             if amount > haul_amount {
                 (haul_amount, AntSimCell::Food { amount: amount - haul_amount })
@@ -85,14 +122,16 @@ impl<A: AntSim> AntSimulator<A> {
                 (AntSimCell::Food { amount }, AntState::Foraging) => {
                     let (haul_amount, new_cell) = take_food(amount, self.config.food_haul_amount);
                     *ant.state_mut() = AntState::Hauling { amount: haul_amount };
+                    ant.stand_still();
                     update_into.set_cell(ant.position(), new_cell);
                 }
                 (AntSimCell::Home, AntState::Hauling { .. }) => {
+                    ant.stand_still();
                     *ant.state_mut() = AntState::Foraging;
                 }
                 _ => {
                     let seed = self.seed + i as u64;
-                    ant.move_to_next(seed, self.config.distance_points.as_ref(), &self.sim);
+                    ant.move_to_next2::<fasthash::mum::Hasher64>(seed, self.config.distance_points.as_ref(), &self.sim, visual_buffer);
                 }
             }
         }
@@ -138,6 +177,53 @@ impl<A: AntSim> AntSimulator<A> {
                 old => old
             };
             update_into.set_cell(ant.position(), new_cell);
+        }
+    }
+}
+
+pub fn neighbors<A: AntSim + ?Sized>(sim: &A, position: &A::Position, buffers: &mut [&mut [Option<A::Position>]]) {
+    let range = buffers.len();
+    let position = sim.decode(position);
+    assert!(sim.encode(position).is_some());
+    let AntPosition { x, y } = position;
+    let downrange_x = if x <= range { x } else { range };
+    let downrange_y = if y <= range { y } else { range };
+    let uprange_y = if sim.height() - y <= range { sim.height() - 1 - y  } else { range };
+    let uprange_x = if sim.width() - x <= range { sim.height() - 1 - x } else { range };
+    for r in 1..=range {
+        let buffer = &mut buffers[r - 1];
+        assert_eq!(buffer.len(), 4 * (1 + 2  * r) - 4);
+        let down_start_x = min(downrange_x, r);
+        let up_end_x = min(uprange_x, r);
+        let down_start_y = min(downrange_y, r - 1);
+        let up_end_y = min(uprange_y, r - 1);
+        if r <= uprange_y {
+            let mut start_i = r - down_start_x;
+            for x in (x - down_start_x)..=(x + up_end_x) {
+                buffer[start_i] = sim.encode(AntPosition { x, y: y + r });
+                start_i += 1;
+            }
+        }
+        if r <= uprange_x {
+            let mut start_i = 1 + 2 * r + (r - 1 - up_end_y);
+            for y in ((y - down_start_y)..=(y + up_end_y)).rev() {
+                buffer[start_i] = sim.encode(AntPosition { x: x + r, y });
+                start_i += 1;
+            }
+        }
+        if r <= downrange_y {
+            let mut start_i =  2 * (1 + 2 * r) - 2 + (r - up_end_x);
+            for x in ((x - down_start_x)..=(x + up_end_x)).rev() {
+                buffer[start_i] = sim.encode(AntPosition { x, y: y - r });
+                start_i += 1;
+            }
+        }
+        if r <= downrange_x {
+            let mut start_i = 3 * (1 + 2 * r) - 2 + (r - 1 - down_start_y);
+            for y in (y - down_start_y)..=(y + up_end_y) {
+                buffer[start_i] = sim.encode(AntPosition { x: x - r, y });
+                start_i += 1;
+            }
         }
     }
 }

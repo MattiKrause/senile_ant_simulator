@@ -7,7 +7,7 @@ use winit::dpi::{LogicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop};
 use winit::window::WindowBuilder;
-use crate::ant_sim::{AntSimConfig, AntSimulator};
+use crate::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer, neighbors};
 
 use crate::ant_sim_ant::{Ant, AntState, simple_hash};
 use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
@@ -24,6 +24,8 @@ const HAUL_AMOUNT: u8 = 20;
 const DECAY_RATE: u8 = 2;
 const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(200);
 const SEED: u64 = 42;
+const VISUAL_RANGE: u8 = 3;
+static POINTS: &'static [(f64, f64); 8] = &POINTS3;
 
 static POINTS3: [(f64, f64); 8] = [
     (3.0, 0.0),
@@ -34,6 +36,17 @@ static POINTS3: [(f64, f64); 8] = [
     (-2.121320343559643, -2.1213203435596424),
     (0.0, -3.0),
     (2.121320343559642, -2.121320343559643),
+];
+
+static POINTS1: [(f64, f64); 8] = [
+    (1.0, 0.0),
+    (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (0.0, 1.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (-1.0, 0.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
+    (-0.0, -1.0),
+    (std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
 ];
 
 fn main() {
@@ -58,19 +71,17 @@ fn main() {
     };
     let mut sim = AntSimVecImpl::new(WIDTH as usize, HEIGHT as usize).unwrap();
     let ants = vec![
-        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }), 0.4),
-        Ant::new_default(sim.encode(AntPosition { x: 125, y: 126 }), 0.6),
-        Ant::new_default(sim.encode(AntPosition { x: 126, y: 125 }), 0.5),
-        Ant::new_default(sim.encode(AntPosition { x: 126, y: 126 }), 0.4),
+        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 100
     ];
-    sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }), AntSimCell::Home);
-    sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }), AntSimCell::Food { amount: u8::MAX });
-    sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }), AntSimCell::Food { amount: u8::MAX });
+    sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), AntSimCell::Home);
+    sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u8::MAX });
+    sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }).unwrap(), AntSimCell::Food { amount: u8::MAX });
     let sim_config = AntSimConfig {
-        distance_points: Box::new(POINTS3),
+        distance_points: Box::new(POINTS.clone()),
         food_haul_amount: HAUL_AMOUNT,
         pheromone_decay_rate: DECAY_RATE,
-        seed_step: 1
+        seed_step: 17,
+        visual_range: AntVisualRangeBuffer::new(VISUAL_RANGE as usize)
     };
     let sim = AntSimulator {
         sim,

@@ -127,6 +127,12 @@ impl AntSim for AntSimVecImpl {
 
     }
 
+    unsafe fn encode_unsafe(&self, position: AntPosition) -> Self::Position {
+        debug_assert!(self.encode(position).is_some());
+        let AntPosition { x, y } = position;
+        AntPositionImpl(y * self.width + x)
+    }
+
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell> {
         self.contains.get(position.0).map(AntSimCellImpl::to_cell)
     }

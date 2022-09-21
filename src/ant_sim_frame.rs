@@ -69,6 +69,9 @@ pub trait AntSim {
     fn check_compatible(&self, other: &Self) -> bool;
     fn decode(&self, position: &Self::Position) -> AntPosition;
     fn encode(&self, position: AntPosition) -> Option<Self::Position>;
+    unsafe fn encode_unsafe(&self, position: AntPosition) -> Self::Position {
+        self.encode(position).unwrap()
+    }
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell>;
     fn set_cell(&mut self, position: &Self::Position, cell: AntSimCell);
     fn cells<'a>(&'a self) -> Self::Cells<'a>;

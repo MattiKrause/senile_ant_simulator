@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Not;
+use crate::ant_sim::neighbors;
 use crate::ant_sim_frame::{AntSim, AntSimCell};
-use crate::neighbors;
 
 #[derive(Debug)]
 pub struct Ant<A: AntSim + ?Sized> {

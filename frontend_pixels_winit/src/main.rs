@@ -7,16 +7,12 @@ use winit::dpi::{LogicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop};
 use winit::window::WindowBuilder;
-use crate::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer, neighbors};
 
-use crate::ant_sim_ant::{Ant, AntState};
-use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
-use crate::ant_sim_frame_impl::AntSimVecImpl;
+use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
 
-mod ant_sim_frame;
-mod ant_sim_ant;
-mod ant_sim_frame_impl;
-mod ant_sim;
+use ant_sim::ant_sim_ant::{Ant, AntState};
+use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
+use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 
 const WIDTH: u32 = 255;
 const HEIGHT: u32 = 255;

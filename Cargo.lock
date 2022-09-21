@@ -24,8 +24,6 @@ name = "ant_sim"
 version = "1.0.0"
 dependencies = [
  "fasthash",
- "pixels",
- "winit",
 ]
 
 [[package]]
@@ -481,6 +479,15 @@ dependencies = [
  "cmake",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "frontend_pixels_winit"
+version = "0.1.0"
+dependencies = [
+ "ant_sim",
+ "pixels",
+ "winit",
 ]
 
 [[package]]

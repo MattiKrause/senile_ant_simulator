@@ -1,6 +1,6 @@
 use std::cmp::min;
-use crate::{Ant, AntPosition, AntSim, AntSimCell, AntState};
-use crate::ant_sim_frame::{NonMaxU16};
+use crate::ant_sim_ant::{Ant, AntState};
+use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
 
 /// Contains the context of a game execution
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct AntSimConfig<A: AntSim + ?Sized> {
     pub pheromone_decay_amount: u16,
     /// The rate at which the seed advances
     pub seed_step: u64,
-    pub visual_range: AntVisualRangeBuffer<A>
+    pub visual_range: AntVisualRangeBuffer<A>,
 }
 
 #[derive(Clone, Debug)]

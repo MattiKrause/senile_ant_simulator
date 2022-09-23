@@ -14,14 +14,15 @@ use ant_sim::ant_sim_ant::{Ant, AntState};
 use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 
-const WIDTH: u32 = 255;
-const HEIGHT: u32 = 255;
+const WIDTH: u32 = 300;
+const HEIGHT: u32 = 300;
 const HAUL_AMOUNT: u16 = 20;
-const DECAY_RATE: u16 = u16::MAX / 382;
-const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(200);
+const DECAY_RATE: u16 = u16::MAX / 200;
+const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(500);
 const SEED: u64 = 42;
 const VISUAL_RANGE: u8 = 3;
 static POINTS: &[(f64, f64); 8] = &POINTS3;
+const POINTS_R: f64 = 1.0;
 
 static POINTS3: [(f64, f64); 8] = [
     (3.0, 0.0),
@@ -34,7 +35,7 @@ static POINTS3: [(f64, f64); 8] = [
     (2.121320343559642, -2.121320343559643),
 ];
 
-static _POINTS1: [(f64, f64); 8] = [
+static POINTS1: [(f64, f64); 8] = [
     (1.0, 0.0),
     (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
     (0.0, 1.0),
@@ -67,13 +68,13 @@ fn main() {
     };
     let mut sim = AntSimVecImpl::new(WIDTH as usize, HEIGHT as usize).unwrap();
     let ants = vec![
-        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 1
+        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 20
     ];
     sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), AntSimCell::Home);
     sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
     sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
     let sim_config = AntSimConfig {
-        distance_points: Box::new(*POINTS),
+        distance_points: Box::new(POINTS1.map(|(x, y)| (x * POINTS_R, y * POINTS_R))),
         food_haul_amount: HAUL_AMOUNT,
         pheromone_decay_amount: DECAY_RATE,
         seed_step: 17,
@@ -165,7 +166,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
                 [0xAF, 0xAF, 0xAF, 0xFF]
             }
             AntSimCell::Home => {
-                [0xFF, 0xFF, 0x0F, 0xFF]
+                [0xFF, 0xFF, 0x00, 0xFF]
             }
             AntSimCell::Food { amount } => {
                 [0, (amount / 256u16) as u8, 0, 0xFF]

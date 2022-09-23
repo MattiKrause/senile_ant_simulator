@@ -66,8 +66,8 @@ impl<A: AntSim + ?Sized> Ant<A> {
             .map(|(_, p)| *p)
             .unwrap_or((0.0, 0.0));
         let (p_food_weight, p_home_weight) = match self.state {
-            AntState::Foraging => (1.0, -0.25),
-            AntState::Hauling { .. } => (-0.25, 1.0)
+            AntState::Foraging => (1.0, 0.0),
+            AntState::Hauling { .. } => (0.0, 1.0)
         };
         {
             let pos = buffers[0][0].as_ref();
@@ -136,7 +136,7 @@ impl<A: AntSim + ?Sized> Ant<A> {
                     }
                     AntSimCell::Blocker => continue,
                     AntSimCell::Home =>
-                        special_count += if matches!(self.state, AntState::Hauling {..}) { 1000 } else { 0 },
+                        special_count += if matches!(self.state, AntState::Hauling {..}) { u16::MAX as u32 * 8 } else { 0 },
                     AntSimCell::Food { amount } =>
                         special_count += if matches!(self.state, AntState::Foraging) { amount as u32 * 8 } else { 0 }
                 }

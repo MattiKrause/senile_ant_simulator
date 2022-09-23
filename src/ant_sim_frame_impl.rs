@@ -11,11 +11,12 @@ pub struct AntSimVecImpl {
 pub struct AntPositionImpl(usize);
 
 #[derive(Clone)]
-struct AntSimCellImpl  {
+pub struct AntSimCellImpl  {
     p1: u16, p2: u16
 }
 
 impl AntSimCellImpl {
+    #[inline]
     pub fn to_cell(&self) -> AntSimCell {
         if self.p2 == u16::MAX {
             AntSimCell::Food {
@@ -35,6 +36,7 @@ impl AntSimCellImpl {
             }
         }
     }
+    #[inline]
     pub const fn from_cell(cell: AntSimCell) -> AntSimCellImpl {
         match cell {
             AntSimCell::Path { pheromone_food, pheromone_home } => {
@@ -80,7 +82,8 @@ impl AntSimVecImpl {
 
 impl AntSim for AntSimVecImpl {
     type Position = AntPositionImpl;
-    type Cells<'a> = CellIterImpl<'a> where Self: 'a;
+    //type Cells<'a> = CellIterImpl<'a> where Self: 'a;
+    type Cells<'a> = core::iter::Map<core::iter::Enumerate<core::slice::Iter<'a, AntSimCellImpl>>, fn((usize, &'a AntSimCellImpl)) -> (AntSimCell, Self::Position)> where Self: 'a;
 
     fn neighbors(&self, position: &Self::Position) -> Result<Neighbors<Self>, ()> {
         if position.0 > self.contains.len() {
@@ -111,12 +114,14 @@ impl AntSim for AntSimVecImpl {
         self.contains.len() == other.contains.len() && self.height == other.height && self.width == other.width
     }
 
+    #[inline]
     fn decode(&self, position: &AntPositionImpl) -> AntPosition {
         AntPosition {
             y: position.0 / self.width,
             x: position.0 % self.width
         }
     }
+    #[inline]
     fn encode(&self, position: AntPosition) -> Option<AntPositionImpl> {
         let AntPosition { x, y } = position;
         if x < self.width && y < self.height {
@@ -133,27 +138,29 @@ impl AntSim for AntSimVecImpl {
         AntPositionImpl(y * self.width + x)
     }
 
+    #[inline]
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell> {
         self.contains.get(position.0).map(AntSimCellImpl::to_cell)
     }
 
+    #[inline]
     fn set_cell(&mut self, position: &Self::Position, set_cell: AntSimCell) {
         if let Some(cell) = self.contains.get_mut(position.0) {
             *cell = AntSimCellImpl::from_cell(set_cell);
         }
     }
 
+    #[inline]
     fn cells<'a>(&'a self) -> Self::Cells<'a> {
-        CellIterImpl {
-            sim: self,
-            index: AntPositionImpl(0)
-        }
+        self.contains.iter().enumerate().map(|(i, c)| (c.to_cell(), AntPositionImpl(i)))
     }
 
+    #[inline]
     fn width(&self) -> usize {
         self.width
     }
 
+    #[inline]
     fn height(&self) -> usize {
         self.height
     }

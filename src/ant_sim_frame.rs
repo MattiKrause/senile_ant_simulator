@@ -24,14 +24,15 @@ mod non_max {
     #[repr(transparent)]
     #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
     pub struct NonMaxU16(u16);
-
     impl NonMaxU16 {
+        #[inline]
         pub const fn new(val: u16) -> Self {
             match Self::try_new(val) {
                 Ok(val) => val,
                 Err(_) => panic!("val is u16::MAX!"),
             }
         }
+        #[inline]
         pub const fn try_new(val: u16) -> Result<Self, ()> {
             if val < u16::MAX {
                 Ok(NonMaxU16(val))
@@ -39,9 +40,11 @@ mod non_max {
                 Err(())
             }
         }
+        #[inline]
         pub const fn get(self) -> u16 {
             self.0
         }
+        #[inline]
         pub const fn dec_by(self, other: u16) -> Self {
             NonMaxU16(self.0.saturating_sub(other))
         }

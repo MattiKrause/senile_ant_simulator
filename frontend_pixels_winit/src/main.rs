@@ -1,30 +1,23 @@
 use std::ops::{Add, DerefMut};
 use std::sync::{Condvar, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use pixels::{Pixels, PixelsBuilder, SurfaceTexture};
 use winit::dpi::{LogicalSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop};
 use winit::window::WindowBuilder;
+use chrono::{DateTime, Local};
 
-use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
+use ant_sim::ant_sim::{AntSimulator};
 
-use ant_sim::ant_sim_ant::{Ant, AntState};
+use ant_sim::ant_sim_ant::{AntState};
 use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
+use ant_sim_save::save_subsystem::*;
 
-const WIDTH: u32 = 300;
-const HEIGHT: u32 = 300;
-const HAUL_AMOUNT: u16 = 20;
-const DECAY_RATE: u16 = u16::MAX / 200;
-const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(500);
-const SEED: u64 = 42;
-const VISUAL_RANGE: u8 = 3;
-static POINTS: &[(f64, f64); 8] = &POINTS3;
-const POINTS_R: f64 = 1.0;
-
-static POINTS3: [(f64, f64); 8] = [
+const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(1000);
+static _POINTS3: [(f64, f64); 8] = [
     (3.0, 0.0),
     (2.0121320343559643, 2.1213203435596424),
     (0.0, 3.0),
@@ -35,7 +28,7 @@ static POINTS3: [(f64, f64); 8] = [
     (2.121320343559642, -2.121320343559643),
 ];
 
-static POINTS1: [(f64, f64); 8] = [
+static _POINTS1: [(f64, f64); 8] = [
     (1.0, 0.0),
     (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
     (0.0, 1.0),
@@ -46,11 +39,17 @@ static POINTS1: [(f64, f64); 8] = [
     (std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
 ];
 
-fn main() {
+fn main() -> Result<(), String>{
+    let mut save_class = SaveFileClass::new("ant_sim_saves/").unwrap();
+    let save_name = String::from("ant_sim_test_state.txt");
+    let sim = read_save(&mut save_class, &save_name)?;
+
     let event_loop = EventLoop::new();
     let window = {
-        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
-        let scaled_size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        let width: f64 = sim.sim.width() as f64;
+        let height: f64 = sim.sim.height() as f64;
+        let size = LogicalSize::new(width, height);
+        let scaled_size = LogicalSize::new(width, height);
         WindowBuilder::new()
             .with_resizable(true)
             .with_title("Ant Simulator 9000")
@@ -62,34 +61,45 @@ fn main() {
     let screen = {
         let win_size = window.inner_size();
         let texture = SurfaceTexture::new(win_size.width, win_size.height, &window);
-        PixelsBuilder::new(WIDTH, HEIGHT, texture)
+        PixelsBuilder::new(sim.sim.width() as u32, sim.sim.height() as u32, texture)
             .build()
             .unwrap()
     };
-    let mut sim = AntSimVecImpl::new(WIDTH as usize, HEIGHT as usize).unwrap();
-    let ants = vec![
-        Ant::new_default(sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), 0.55); 20
-    ];
-    sim.set_cell(&sim.encode(AntPosition { x: 125, y: 125 }).unwrap(), AntSimCell::Home);
-    sim.set_cell(&sim.encode(AntPosition { x: 90, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
-    sim.set_cell(&sim.encode(AntPosition { x: 110, y: 125 }).unwrap(), AntSimCell::Food { amount: u16::MAX });
-    let sim_config = AntSimConfig {
-        distance_points: Box::new(POINTS1.map(|(x, y)| (x * POINTS_R, y * POINTS_R))),
-        food_haul_amount: HAUL_AMOUNT,
-        pheromone_decay_amount: DECAY_RATE,
-        seed_step: 17,
-        visual_range: AntVisualRangeBuffer::new(VISUAL_RANGE as usize)
-    };
-    let sim = AntSimulator {
-        sim,
-        ants,
-        seed: SEED,
-        config: sim_config
-    };
-    main_loop(event_loop, screen, sim);
+    main_loop(event_loop, screen, sim, save_class);
+    Ok(())
 }
 
-fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<AntSimVecImpl>) {
+fn write_save<A: AntSim>(to_file: &mut SaveFileClass, name: &str, sim: &AntSimulator<A>) -> Result<(), String> {
+    to_file.write_new_save(name, sim, true).map_err(|err| match err {
+        WriteSaveFileError::PathNotFile => format!("path is not file"),
+        WriteSaveFileError::FileExists => format!("the file already exists and cannot be overriden"),
+        WriteSaveFileError::FailedToWriteFile(err) => format!("failed to write to file: {err}"),
+        WriteSaveFileError::InvalidData => format!("invalid state data")
+    })
+}
+
+fn write_auto_save<A: AntSim>(to_file: &mut SaveFileClass, base_name: &str, sim: &AntSimulator<A>) -> Result<(), String> {
+    let time = DateTime::<Local>::from(SystemTime::now());
+    let time_str = time.to_rfc3339();
+    write_save(to_file, &format!("{base_name}-autosave-{time_str}.json"), sim)
+}
+
+fn read_save(from_class: &mut SaveFileClass, from_file: &str) -> Result<AntSimulator<AntSimVecImpl>, String> {
+    let res = from_class.read_save(from_file, |d| {
+        let width = d.width.try_into().map_err(|_|())?;
+        let height = d.height.try_into().map_err(|_|())?;
+        AntSimVecImpl::new(width, height)
+    });
+    res.map_err(|err| match err {
+        ReadSaveFileError::PathNotFile => format!("given path is not a file"),
+        ReadSaveFileError::FileDoesNotExist => format!("the given save file does not exist"),
+        ReadSaveFileError::FailedToRead(err) => format!("Failed to read from file: {err}"),
+        ReadSaveFileError::InvalidFormat(err) => err,
+        ReadSaveFileError::InvalidData(err) => err
+    })
+}
+
+fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<AntSimVecImpl>, mut save_class: SaveFileClass) {
     let state = Mutex::new((Box::new(state.clone()), Box::new(state)));
     let state = &*Box::leak(Box::new(state));
     let threshold = DEFAULT_FRAME_LEN;
@@ -121,6 +131,7 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
             if let Ok(state) = state.try_lock() {
                 last_loop = Instant::now();
                 draw_state(&state.1, &mut screen);
+                write_auto_save(&mut save_class, "default-save", state.1.as_ref()).unwrap();
                 drop(state);
                 proceed.notify_all();
             } else {
@@ -146,9 +157,9 @@ fn pixel(frame: &mut [u8], pix: usize) -> &mut [u8] {
     &mut frame[pix..(pix + 4)]
 }
 
-fn pixel_of_pos(frame: &mut [u8], pos: AntPosition) -> &mut [u8] {
+fn pixel_of_pos(width: usize, frame: &mut [u8], pos: AntPosition) -> &mut [u8] {
     let AntPosition { x, y } = pos;
-    let pix = y * WIDTH as usize + x;
+    let pix = y * width + x;
     pixel(frame, pix)
 }
 
@@ -157,7 +168,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
     for cell in sim.sim.cells() {
         let (cell, pos): (AntSimCell, A::Position) = cell;
         let pos = sim.sim.decode(&pos);
-        let pixel = pixel_of_pos(frame, pos);
+        let pixel = pixel_of_pos(sim.sim.width(), frame, pos);
         let color = match cell {
             AntSimCell::Path { pheromone_food, pheromone_home } => {
                 [(pheromone_food.get() / 256u16) as u8, 0, (pheromone_home.get() / 256u16) as u8, 0xFF]
@@ -183,7 +194,7 @@ fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
                 [0xFF - amount, 0xFF, 0xFF - amount, 0xFF]
             }
         };
-        pixel_of_pos(frame, pos).copy_from_slice(&color);
+        pixel_of_pos(sim.sim.width(), frame, pos).copy_from_slice(&color);
     }
     on.render().unwrap();
 }

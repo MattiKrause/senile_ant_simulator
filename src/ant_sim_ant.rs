@@ -30,19 +30,30 @@ impl<A: AntSim + ?Sized> Clone for Ant<A> where A::Position: Clone {
 
 impl<A: AntSim + ?Sized> Ant<A> {
     pub fn new_default(position: A::Position, explore_weight: f64) -> Self {
+        Self::new(position.clone(), position, explore_weight, AntState::Foraging)
+    }
+    pub fn new(position: A::Position, last_position: A::Position, explore_weight: f64, state: AntState) -> Self {
         Self {
-            last_position: position.clone(),
-            state: AntState::Foraging,
             position,
-            explore_weight,
+            last_position,
+            state,
+            explore_weight
         }
     }
     pub fn position(&self) -> &A::Position {
         &self.position
     }
 
+    pub fn last_position(&self) -> &A::Position {
+        &self.position
+    }
+
     pub fn state(&self) -> &AntState {
         &self.state
+    }
+
+    pub fn exploration_weight(&self) -> f64 {
+        self.explore_weight
     }
 
     pub fn state_mut(&mut self) -> &mut AntState {

@@ -1,0 +1,185 @@
+{
+  "env": {
+    "seed": 42,
+    "decay_rate": 327,
+    "haul_amount": 20,
+    "points": [
+      [
+        1.0,
+        0.0
+      ],
+      [
+        0.7071067811865476,
+        0.7071067811865476
+      ],
+      [
+        0.0,
+        1.0
+      ],
+      [
+        -0.7071067811865476,
+        0.7071067811865476
+      ],
+      [
+        -1.0,
+        0.0
+      ],
+      [
+        -0.7071067811865476,
+        -0.7071067811865476
+      ],
+      [
+        -0.0,
+        -1.0
+      ],
+      [
+        0.7071067811865476,
+        -0.7071067811865476
+      ]
+    ],
+    "ant_visual_range": 3,
+    "dimensions": {
+      "width": 300,
+      "height": 300
+    }
+  },
+  "ants": [
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    },
+    {
+      "position": 37625,
+      "last_position": 37625,
+      "exploration_factor": 0.55,
+      "state": "Foraging"
+    }
+  ],
+  "board": {
+    "blockers": [],
+    "homes": [
+      37625
+    ],
+    "foods": [
+      [
+        37590,
+        65535
+      ],
+      [
+        37610,
+        65535
+      ]
+    ],
+    "paths_with_pheromones": []
+  }
+}

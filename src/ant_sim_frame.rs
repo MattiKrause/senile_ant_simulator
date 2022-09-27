@@ -1,18 +1,6 @@
 use std::hash::Hash;
 pub use non_max::*;
 
-#[derive(Debug)]
-pub struct Neighbors<A: AntSim + ?Sized> {
-    pub up: Option<A::Position>,
-    pub up_left: Option<A::Position>,
-    pub up_right: Option<A::Position>,
-    pub left: Option<A::Position>,
-    pub right: Option<A::Position>,
-    pub down: Option<A::Position>,
-    pub down_left: Option<A::Position>,
-    pub down_right: Option<A::Position>,
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct AntPosition {
     pub x: usize,
@@ -20,19 +8,27 @@ pub struct AntPosition {
 }
 
 mod non_max {
-
     #[repr(transparent)]
     #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
     pub struct NonMaxU16(u16);
+
     impl NonMaxU16 {
+        /// Constructs a new [NonMaxU16] value from the given value
+        /// # Panics
+        /// Panics if the value is equals to `u16::MAX`
         #[inline]
+        #[must_use]
         pub const fn new(val: u16) -> Self {
             match Self::try_new(val) {
                 Ok(val) => val,
-                Err(_) => panic!("val is u16::MAX!"),
+                Err(()) => panic!("val is u16::MAX!"),
             }
         }
+        /// Tries to construct a [NonMaxU16] value from the given value
+        /// # Errors
+        /// Returns an error if the value is equals to `u16::MAX`
         #[inline]
+        #[allow(clippy::result_unit_err)]
         pub const fn try_new(val: u16) -> Result<Self, ()> {
             if val < u16::MAX {
                 Ok(NonMaxU16(val))
@@ -41,10 +37,12 @@ mod non_max {
             }
         }
         #[inline]
+        #[must_use]
         pub const fn get(self) -> u16 {
             self.0
         }
         #[inline]
+        #[must_use]
         pub const fn dec_by(self, other: u16) -> Self {
             NonMaxU16(self.0.saturating_sub(other))
         }
@@ -68,16 +66,12 @@ pub trait AntSim {
     type Position: Eq + Clone + Hash;
     type Cells<'a>: Iterator<Item=(AntSimCell, Self::Position)> where Self: 'a;
 
-    fn neighbors(&self, position: &Self::Position) -> Result<Neighbors<Self>, ()>;
     fn check_compatible(&self, other: &Self) -> bool;
     fn decode(&self, position: &Self::Position) -> AntPosition;
     fn encode(&self, position: AntPosition) -> Option<Self::Position>;
-    unsafe fn encode_unsafe(&self, position: AntPosition) -> Self::Position {
-        self.encode(position).unwrap()
-    }
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell>;
     fn set_cell(&mut self, position: &Self::Position, cell: AntSimCell);
-    fn cells<'a>(&'a self) -> Self::Cells<'a>;
+    fn cells(&self) -> Self::Cells<'_>;
     fn width(&self) -> usize;
     fn height(&self) -> usize;
 }

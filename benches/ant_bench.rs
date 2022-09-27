@@ -42,7 +42,7 @@ fn bench_neighbors(c: &mut Criterion) {
     for r in 1..=7 {
         group.bench_function(BenchmarkId::new("range", r), |b| {
             neighbors_bench(b, r, |pos, sim, b| {
-                ant_sim::ant_sim::neighbors_unsafe(sim, &pos, b);
+                ant_sim::ant_sim::neighbors(sim, &pos, b);
             })
         });
     }

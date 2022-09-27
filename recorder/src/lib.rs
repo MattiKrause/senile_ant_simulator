@@ -1,6 +1,6 @@
 #![feature(generic_associated_types)]
+#![allow(stable_features)]
 
-use std::ops::DerefMut;
 use std::time::Duration;
 
 pub mod gif_recorder;
@@ -122,7 +122,7 @@ impl TryFrom<Box<[u8]>> for RgbBoxBuf {
 }
 
 impl ColorBuffer for RgbBoxBuf {
-    type Ref<'a> where Self: 'a = RgbBufRef<'a>;
+    type Ref<'a> = RgbBufRef<'a>;
 
     fn from_pixels(pixels: usize) -> Self {
         Self(vec![0; pixels * 3].into_boxed_slice())

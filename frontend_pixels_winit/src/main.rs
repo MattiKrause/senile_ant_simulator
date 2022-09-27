@@ -90,7 +90,7 @@ fn read_save(from_class: &mut SaveFileClass, from_file: &str) -> Result<AntSimul
     let res = from_class.read_save(from_file, |d| {
         let width = d.width.try_into().map_err(|_|())?;
         let height = d.height.try_into().map_err(|_|())?;
-        AntSimVecImpl::new(width, height)
+        AntSimVecImpl::new(width, height).map_err(|_|())
     });
     res.map_err(|err| match err {
         ReadSaveFileError::PathNotFile => format!("given path is not a file"),
@@ -134,7 +134,7 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
             if let Ok(state) = state.try_lock() {
                 last_loop = Instant::now();
                 draw_state(&state.1, &mut screen);
-                gif.new_frame(RgbaBufRef::try_from(screen.get_frame()).unwrap(), Duration::from_millis(20));
+                let _ = gif.new_frame(RgbaBufRef::try_from(screen.get_frame()).unwrap(), Duration::from_millis(20));
                 write_auto_save(&mut save_class, "default-save", state.1.as_ref()).unwrap();
                 drop(state);
                 proceed.notify_all();

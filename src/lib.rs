@@ -1,3 +1,6 @@
+#![feature(generic_associated_types)]
+#![allow(stable_features, clippy::needless_return)]
+#![warn(clippy::pedantic)]
 extern crate core;
 
 pub mod ant_sim_frame;

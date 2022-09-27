@@ -1,4 +1,4 @@
-use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, Neighbors, NonMaxU16};
+use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
 
 #[derive(Clone)]
 pub struct AntSimVecImpl {
@@ -17,6 +17,7 @@ pub struct AntSimCellImpl  {
 
 impl AntSimCellImpl {
     #[inline]
+    #[must_use]
     pub fn to_cell(&self) -> AntSimCell {
         if self.p2 == u16::MAX {
             AntSimCell::Food {
@@ -37,6 +38,7 @@ impl AntSimCellImpl {
         }
     }
     #[inline]
+    #[must_use]
     pub const fn from_cell(cell: AntSimCell) -> AntSimCellImpl {
         match cell {
             AntSimCell::Path { pheromone_food, pheromone_home } => {
@@ -62,14 +64,26 @@ impl AntSimCellImpl {
         }
     }
 }
+#[derive(Debug)]
+pub enum NewAntSimVecImplError {
+    DimensionZero, DimensionTooLarge, OutOfMemory
+}
 
 impl AntSimVecImpl {
-    pub fn new(width: usize, height: usize) -> Result<Self, ()> {
-        if width == 0 || height == 0 || width.overflowing_mul(height).1 {
-            return Err(());
+    /// Creates a new [AntSimVecImpl] with the specified dimensions
+    /// # Errors
+    /// Returns an error if either the height or the width is zero, if the dimensions exceed [isize::MAX] or if the allocator failed
+    pub fn new(width: usize, height: usize) -> Result<Self, NewAntSimVecImplError> {
+        if width == 0 || height == 0 {
+            return Err(NewAntSimVecImplError::DimensionZero)
         }
-        let mut contains = Vec::with_capacity(width * height);
-        for _ in 0..(height * width) {
+        if width.overflowing_mul(height).1 || isize::try_from(width * height).is_err() {
+            return Err(NewAntSimVecImplError::DimensionTooLarge)
+        }
+        let size = width * height;
+        let mut contains = Vec::new();
+        contains.try_reserve_exact(size).map_err(|_| NewAntSimVecImplError::OutOfMemory)?;
+        for _ in 0..size {
             contains.push(AntSimCellImpl::from_cell(AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) }));
         }
         Ok(Self {
@@ -84,31 +98,6 @@ impl AntSim for AntSimVecImpl {
     type Position = AntPositionImpl;
     //type Cells<'a> = CellIterImpl<'a> where Self: 'a;
     type Cells<'a> = core::iter::Map<core::iter::Enumerate<core::slice::Iter<'a, AntSimCellImpl>>, fn((usize, &'a AntSimCellImpl)) -> (AntSimCell, Self::Position)> where Self: 'a;
-
-    fn neighbors(&self, position: &Self::Position) -> Result<Neighbors<Self>, ()> {
-        if position.0 > self.contains.len() {
-            return Err(());
-        }
-        let AntPosition { y, x } = self.decode(position);
-        macro_rules! check_pos {
-            ($y: expr, $x: expr) => {
-                {
-                    self.encode(AntPosition { y: $y, x: $x })
-                }
-            };
-        }
-        let neighbors = Neighbors {
-            up: check_pos!(y + 1, x),
-            up_left: check_pos!(y + 1, x.wrapping_sub(1)),
-            up_right: check_pos!(y + 1, x + 1),
-            left: check_pos!(y, x.wrapping_sub(1)),
-            right: check_pos!(y, x + 1),
-            down: check_pos!(y.wrapping_sub(1), x),
-            down_left: check_pos!(y.wrapping_sub(1), x.wrapping_sub(1)),
-            down_right: check_pos!(y.wrapping_sub(1), x + 1)
-        };
-        Ok(neighbors)
-    }
 
     fn check_compatible(&self, other: &Self) -> bool {
         self.contains.len() == other.contains.len() && self.height == other.height && self.width == other.width
@@ -132,12 +121,6 @@ impl AntSim for AntSimVecImpl {
 
     }
 
-    unsafe fn encode_unsafe(&self, position: AntPosition) -> Self::Position {
-        debug_assert!(self.encode(position).is_some());
-        let AntPosition { x, y } = position;
-        AntPositionImpl(y * self.width + x)
-    }
-
     #[inline]
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell> {
         self.contains.get(position.0).map(AntSimCellImpl::to_cell)
@@ -151,7 +134,7 @@ impl AntSim for AntSimVecImpl {
     }
 
     #[inline]
-    fn cells<'a>(&'a self) -> Self::Cells<'a> {
+    fn cells(&self) -> Self::Cells<'_> {
         self.contains.iter().enumerate().map(|(i, c)| (c.to_cell(), AntPositionImpl(i)))
     }
 

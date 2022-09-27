@@ -81,7 +81,7 @@ fn parse_save_file(file: PathBuf) -> Result<AntSimulator<AntSimVecImpl>, String>
     let result = SaveFileClass::read_save_from(&file, |d| {
         let height = d.height.try_into().map_err(|_|())?;
         let width = d.width.try_into().map_err(|_|())?;
-        AntSimVecImpl::new(width, height)
+        AntSimVecImpl::new(width, height).map_err(|_|())
     });
 
     result.map_err(|err| match err {
@@ -146,9 +146,4 @@ fn draw_to_buf<A: AntSim>(sim: &AntSimulator<A>, frame: &mut impl SetRgb) {
         };
         set_pixel(sim.sim.width(), pos, color, frame);
     }
-}
-
-fn pixel(frame: &mut [u8], pix: usize) -> &mut [u8] {
-    let pix = pix * 4;
-    &mut frame[pix..(pix + 4)]
 }

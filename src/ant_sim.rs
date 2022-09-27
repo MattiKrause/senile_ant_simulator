@@ -8,7 +8,7 @@ pub struct AntSimulator<A: AntSim> {
     pub sim: A,
     pub ants: Vec<Ant<A>>,
     pub seed: u64,
-    pub config: AntSimConfig<A>
+    pub config: AntSimConfig<A>,
 }
 
 /// The Configuration of a simulation, this should not change over the course of the game
@@ -34,19 +34,25 @@ pub struct AntSimConfig<A: AntSim + ?Sized> {
 #[derive(Clone, Debug)]
 pub struct AntVisualRangeBuffer<A: AntSim + ?Sized> {
     backing: Box<[Option<A::Position>]>,
-    range: usize
+    range: usize,
 }
 
-impl <A: AntSim + ?Sized> AntVisualRangeBuffer<A> {
+impl<A: AntSim + ?Sized> AntVisualRangeBuffer<A> {
+    #[must_use]
     pub fn new(range: usize) -> Self {
         Self {
             backing: vec![None; Self::expected_size(range)].into_boxed_slice(),
-            range
+            range,
         }
     }
+    #[must_use]
     pub fn range(&self) -> usize {
         self.range
     }
+    /// Writes the backing buffers into `write_into`
+    /// # Panics
+    /// Panics if the invariant of `buffer.len() == 1 * 8 + 2 * r + .. + range * 8` is  not upheld,
+    /// panics if the requested range is larger than the range this object was constructed with.
     pub fn buffers<'a>(&'a mut self, write_into: &mut [&'a mut [Option<A::Position>]]) {
         assert!(self.backing.len() >= Self::expected_size(self.range));
         assert!(write_into.len() <= self.range);
@@ -176,53 +182,11 @@ impl<A: AntSim> AntSimulator<A> {
     }
 }
 
-pub fn neighbors<A: AntSim + ?Sized>(sim: &A, position: &A::Position, buffers: &mut [&mut [Option<A::Position>]]) {
-    let range = buffers.len();
-    let position = sim.decode(position);
-    assert!(sim.encode(position).is_some());
-    let AntPosition { x, y } = position;
-    let downrange_x = if x <= range { x } else { range };
-    let downrange_y = if y <= range { y } else { range };
-    let uprange_y = if sim.height() - y <= range { sim.height() - 1 - y  } else { range };
-    let uprange_x = if sim.width() - x <= range { sim.height() - 1 - x } else { range };
-    for r in 1..=range {
-        let buffer = &mut buffers[r - 1];
-        assert_eq!(buffer.len(), 4 * (1 + 2  * r) - 4);
-        let down_start_x = min(downrange_x, r);
-        let up_end_x = min(uprange_x, r);
-        let down_start_y = min(downrange_y, r - 1);
-        let up_end_y = min(uprange_y, r - 1);
-        if r <= uprange_y {
-            let mut start_i = r - down_start_x;
-            for x in (x - down_start_x)..=(x + up_end_x) {
-                buffer[start_i] = sim.encode(AntPosition { x, y: y + r });
-                start_i += 1;
-            }
-        }
-        if r <= uprange_x {
-            let mut start_i = 1 + 2 * r + (r - 1 - up_end_y);
-            for y in ((y - down_start_y)..=(y + up_end_y)).rev() {
-                buffer[start_i] = sim.encode(AntPosition { x: x + r, y });
-                start_i += 1;
-            }
-        }
-        if r <= downrange_y {
-            let mut start_i =  2 * (1 + 2 * r) - 2 + (r - up_end_x);
-            for x in ((x - down_start_x)..=(x + up_end_x)).rev() {
-                buffer[start_i] = sim.encode(AntPosition { x, y: y - r });
-                start_i += 1;
-            }
-        }
-        if r <= downrange_x {
-            let mut start_i = 3 * (1 + 2 * r) - 2 + (r - 1 - down_start_y);
-            for y in (y - down_start_y)..=(y + up_end_y) {
-                buffer[start_i] = sim.encode(AntPosition { x: x - r, y });
-                start_i += 1;
-            }
-        }
-    }
+macro_rules! proof_assert {
+    ($cond: expr) => {};
 }
-pub fn neighbors_unsafe<A: AntSim + ?Sized>(sim: &A, position: &A::Position, buffers: &mut [&mut [Option<A::Position>]]) {
+
+pub fn neighbors<A: AntSim + ?Sized>(sim: &A, position: &A::Position, buffers: &mut [&mut [Option<A::Position>]]) {
     let range = buffers.len();
     let position = sim.decode(position);
     assert!(sim.encode(position).is_some());
@@ -231,83 +195,75 @@ pub fn neighbors_unsafe<A: AntSim + ?Sized>(sim: &A, position: &A::Position, buf
     debug_assert!(x < sim.width() && y < sim.height());
     let downrange_x = if x <= range { x } else { range };
     let downrange_y = if y <= range { y } else { range };
-    let uprange_y = if sim.height() - 1 - y <= range { sim.height() - 1 - y  } else { range };
+    let uprange_y = if sim.height() - 1 - y <= range { sim.height() - 1 - y } else { range };
     let uprange_x = if sim.width() - 1 - x <= range { sim.height() - 1 - x } else { range };
-    debug_assert!(downrange_x <= range && downrange_x <= x);
-    debug_assert!(downrange_y <= range && downrange_y <= y);
-    debug_assert!(uprange_y <= range && y.checked_add(uprange_y).map(|last_y| last_y < sim.height()).unwrap_or(false));
-    debug_assert!(uprange_x <= range && x.checked_add(uprange_x).map(|last_x| last_x < sim.width()).unwrap_or(false));
+    proof_assert!(downrange_x <= range && downrange_x <= x);
+    proof_assert!(downrange_y <= range && downrange_y <= y);
+    proof_assert!(uprange_y <= range && y.checked_add(uprange_y).map(|last_y| last_y < sim.height()).unwrap_or(false));
+    proof_assert!(uprange_x <= range && x.checked_add(uprange_x).map(|last_x| last_x < sim.width()).unwrap_or(false));
     for r in 1..=range {
-        let buffer = unsafe { buffers.get_unchecked_mut(r - 1) };
+        let buffer = &mut *buffers[r - 1];
         //assert_eq!(buffer.len(), 4 * (1 + 2  * r) - 4);
         assert_eq!(buffer.len(), 8 * r);
         let down_start_x = min(downrange_x, r);
         let up_end_x = min(uprange_x, r);
         let down_start_y = min(downrange_y, r - 1);
         let up_end_y = min(uprange_y, r - 1);
-        debug_assert!(down_start_x <= downrange_x && down_start_x <= r);
-        debug_assert!(up_end_x <= uprange_x && up_end_x <= r);
-        debug_assert!(down_start_y <= downrange_y && down_start_y <= r - 1);
-        debug_assert!(up_end_y <= uprange_y && up_end_y <= r - 1);
+        proof_assert!(down_start_x <= downrange_x && down_start_x <= r);
+        proof_assert!(up_end_x <= uprange_x && up_end_x <= r);
+        proof_assert!(down_start_y <= downrange_y && down_start_y <= r - 1);
+        proof_assert!(up_end_y <= uprange_y && up_end_y <= r - 1);
         if r <= uprange_y {
             let mut start_i = r - down_start_x;
-            debug_assert!(start_i <= r);
-            debug_assert!(((x - down_start_x)..=(x + up_end_x)).count() == down_start_x + up_end_x + 1);
-            debug_assert!(r - down_start_x + down_start_x + 1 + up_end_x <= 2 * r + 1);
-            debug_assert!(r - down_start_x + down_start_x + 1 + up_end_x < 8 * r);
-            debug_assert!(y.checked_add(r).map(|y| y < sim.height()).unwrap_or(false));
+            proof_assert!(start_i <= r);
+            proof_assert!(((x - down_start_x)..=(x + up_end_x)).count() == down_start_x + up_end_x + 1);
+            proof_assert!(r - down_start_x + down_start_x + 1 + up_end_x <= 2 * r + 1);
+            proof_assert!(r - down_start_x + down_start_x + 1 + up_end_x < 8 * r);
+            proof_assert!(y.checked_add(r).map(|y| y < sim.height()).unwrap_or(false));
             for x in (x - down_start_x)..=(x + up_end_x) {
-                unsafe {
-                    *buffer.get_unchecked_mut(start_i) = Some(sim.encode_unsafe(AntPosition { x, y: y + r }));
-                }
+                buffer[start_i] = sim.encode(AntPosition { x, y: y + r });
                 start_i += 1;
             }
         }
         if r <= uprange_x {
             //let mut start_i = 1 + 2 * r + (r - 1 - up_end_y);
             let mut start_i = 3 * r - up_end_y;
-            debug_assert!(start_i <= 3 * r);
-            debug_assert!(((y - down_start_y)..=(y + up_end_y)).rev().count() == down_start_y + up_end_y + 1);
+            proof_assert!(start_i <= 3 * r);
+            proof_assert!(((y - down_start_y)..=(y + up_end_y)).rev().count() == down_start_y + up_end_y + 1);
             // down_start_y <= r + 1 => down_start_y + 1 <=  r
-            debug_assert!(3 * r - up_end_y + down_start_y + up_end_y + 1 <= 4 * r);
-            debug_assert!(3 * r - up_end_y + down_start_y + up_end_y + 1 < 8 * r);
-            debug_assert!(x.checked_add(r).map(|x| x < sim.width()).unwrap_or(false));
+            proof_assert!(3 * r - up_end_y + down_start_y + up_end_y + 1 <= 4 * r);
+            proof_assert!(3 * r - up_end_y + down_start_y + up_end_y + 1 < 8 * r);
+            proof_assert!(x.checked_add(r).map(|x| x < sim.width()).unwrap_or(false));
             for y in ((y - down_start_y)..=(y + up_end_y)).rev() {
-                unsafe {
-                    *buffer.get_unchecked_mut(start_i)= Some(sim.encode_unsafe(AntPosition { x: x + r, y }));
-                }
+                buffer[start_i] = sim.encode(AntPosition { x: x + r, y });
                 start_i += 1;
             }
         }
         if r <= downrange_y {
             //let mut start_i =  2 * (1 + 2 * r) - 2 + (r - up_end_x);
-            let mut start_i =  5 * r - up_end_x;
-            debug_assert!(start_i <= 5 * r);
-            debug_assert!(((x - down_start_x)..=(x + up_end_x)).rev().count() == down_start_x + up_end_x + 1);
-            debug_assert!(5 * r - up_end_x + down_start_x + up_end_x + 1 <= 1 + 6 * r);
-            debug_assert!(5 * r - up_end_x + down_start_x + up_end_x + 1 < 8 * r);
-            debug_assert!(r <= y);
+            let mut start_i = 5 * r - up_end_x;
+            proof_assert!(start_i <= 5 * r);
+            proof_assert!(((x - down_start_x)..=(x + up_end_x)).rev().count() == down_start_x + up_end_x + 1);
+            proof_assert!(5 * r - up_end_x + down_start_x + up_end_x + 1 <= 1 + 6 * r);
+            proof_assert!(5 * r - up_end_x + down_start_x + up_end_x + 1 < 8 * r);
+            proof_assert!(r <= y);
             for x in ((x - down_start_x)..=(x + up_end_x)).rev() {
-                unsafe {
-                    *buffer.get_unchecked_mut(start_i) = Some(sim.encode_unsafe(AntPosition { x, y: y - r }));
-                }
+                buffer[start_i] = sim.encode(AntPosition { x, y: y - r });
                 start_i += 1;
             }
         }
         if r <= downrange_x {
             //let mut start_i = 3 * (1 + 2 * r) - 2 + (r - 1 - down_start_y);
             let mut start_i = 7 * r - down_start_y;
-            debug_assert!(start_i <= 7 * r);
-            debug_assert!(((y - down_start_y)..=(y + up_end_y)).count() == down_start_y + up_end_y + 1);
-            debug_assert!(((y - down_start_y)..(y + up_end_y)).count() == down_start_y + up_end_y);
-            debug_assert!(7 * r - down_start_y + down_start_y + up_end_y + 1 <= 8 * r);
+            proof_assert!(start_i <= 7 * r);
+            proof_assert!(((y - down_start_y)..=(y + up_end_y)).count() == down_start_y + up_end_y + 1);
+            proof_assert!(((y - down_start_y)..(y + up_end_y)).count() == down_start_y + up_end_y);
+            proof_assert!(7 * r - down_start_y + down_start_y + up_end_y + 1 <= 8 * r);
             // start_i of the last iteration
-            debug_assert!(start_i + down_start_y + up_end_y < 8 * r);
-            debug_assert!(x <= r);
+            proof_assert!(start_i + down_start_y + up_end_y < 8 * r);
+            proof_assert!(x <= r);
             for y in (y - down_start_y)..=(y + up_end_y) {
-                unsafe {
-                    *buffer.get_unchecked_mut(start_i) = Some(sim.encode_unsafe(AntPosition { x: x - r, y }));
-                }
+                buffer[start_i] = sim.encode(AntPosition { x: x - r, y });
                 start_i += 1;
             }
         }

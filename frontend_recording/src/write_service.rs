@@ -5,7 +5,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use recorder::{BufConsumer, ColorBuffer};
 
-type FrameBuffer = Box<[u8]>;
 enum BufWriterError<Err> {
     ChannelDeath,
     ConsumerErr(Err)

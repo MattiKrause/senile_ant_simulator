@@ -74,11 +74,14 @@ impl SaveFileClass {
     pub fn read_save<A: AntSim>(&mut self, name: impl AsRef<Path>, get_sim: impl FnOnce(Dimensions) -> Result<A, ()>) -> Result<AntSimulator<A>, ReadSaveFileError> {
         let name = name.as_ref();
         self.extend_path_buf(name);
-        if !self.path_buf.exists() {
+        Self::read_save_from(&self.path_buf, get_sim)
+    }
+    pub fn read_save_from<A:AntSim>(path_buf: &Path, get_sim: impl FnOnce(Dimensions) -> Result<A, ()>)-> Result<AntSimulator<A>, ReadSaveFileError>  {
+        if !path_buf.exists() {
             return Err(ReadSaveFileError::FileDoesNotExist);
         }
         let mut file = File::options().read(true)
-            .open(&self.path_buf)
+            .open(path_buf)
             .map_err(ReadSaveFileError::FailedToRead)?;
         let data: AntSimData = serde_json::from_reader(&mut file).map_err(|err| {
             if err.is_io() {

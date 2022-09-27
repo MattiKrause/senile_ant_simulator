@@ -1,10 +1,10 @@
+use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::ops::Deref;
+use std::io;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
-use gif::{DisposalMethod, EncodingError, Frame};
-use crate::RgbaConsumer;
+use gif::{DisposalMethod, EncodingError};
+use crate::{BufConsumer, RgbaBufRef};
 
 pub struct GIFRecorder {
     writer: gif::Encoder<File>,
@@ -13,6 +13,11 @@ pub struct GIFRecorder {
 #[derive(Debug)]
 pub enum NewGifRecorderError {
     FileAlreadyExists, FileErr(std::io::Error), FormatErr
+}
+
+#[derive(Debug)]
+pub enum GifFrameError {
+    IOError(io::Error), FormatErr
 }
 
 impl GIFRecorder {
@@ -34,16 +39,31 @@ impl GIFRecorder {
         };
         Ok(rec)
     }
-    pub fn new_frame(&mut self, frame: &mut [u8], delay: Duration) {
-        let mut frame = gif::Frame::from_rgba(self.width, self.height, frame);
+    pub fn new_frame(&mut self, mut frame: RgbaBufRef, delay: Duration) -> Result<(), GifFrameError> {
+        let mut frame = gif::Frame::from_rgba_speed(self.width, self.height, &mut  frame.0, 1);
         frame.delay = (delay.as_millis() / 10) as u16;
         frame.dispose = DisposalMethod::Keep;
-        self.writer.write_frame(&frame).unwrap();
+        self.writer.write_frame(&frame).map_err(|err| match err {
+            EncodingError::Format(_) => GifFrameError::FormatErr,
+            EncodingError::Io(err) => GifFrameError::IOError(err),
+        })
     }
 }
 
-impl RgbaConsumer  for GIFRecorder {
-    fn write_buf(&mut self, buf: &mut [u8], delay: Duration) {
-        self.new_frame(buf, delay);
+impl BufConsumer  for GIFRecorder {
+    type Err = GifFrameError;
+    type Buf<'a> = RgbaBufRef<'a>;
+
+    fn write_buf<'b>(&mut self, buf: RgbaBufRef<'b>, delay: Duration) -> Result<(), GifFrameError> {
+        self.new_frame(buf, delay)
+    }
+}
+
+impl Display for GifFrameError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GifFrameError::IOError(err) =>  write!(f, "failed to write to target file: {err}"),
+            GifFrameError::FormatErr => write!(f, "invalid gif encoding")
+        }
     }
 }

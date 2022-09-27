@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 pub mod gif_recorder;
+mod gif_pix_mapping;
 
 pub trait BufConsumer {
     type Err;
@@ -78,7 +79,7 @@ impl <'b> RgbaBufRef<'b> {
 
 impl <'b> SetRgb for RgbaBufRef<'b> {
     fn len(&self) -> usize {
-        self.0.len()
+        self.0.len() / 4
     }
 
     fn set_rgb(&mut self, index: usize, rgb: [u8; 3]) {
@@ -153,7 +154,7 @@ impl <'b> RgbBufRef<'b> {
 
 impl <'b> SetRgb for RgbBufRef<'b> {
     fn len(&self) -> usize {
-        self.0.len()
+        self.0.len() / 3
     }
 
     fn set_rgb(&mut self, index: usize, rgb: [u8; 3]) {

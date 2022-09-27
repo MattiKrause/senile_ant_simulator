@@ -134,7 +134,7 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
             if let Ok(state) = state.try_lock() {
                 last_loop = Instant::now();
                 draw_state(&state.1, &mut screen);
-                let _ = gif.new_frame(RgbaBufRef::try_from(screen.get_frame()).unwrap(), Duration::from_millis(20));
+                //let _ = gif.new_frame(RgbaBufRef::try_from(screen.get_frame().chunks_exact(4)).unwrap(), Duration::from_millis(20));
                 write_auto_save(&mut save_class, "default-save", state.1.as_ref()).unwrap();
                 drop(state);
                 proceed.notify_all();

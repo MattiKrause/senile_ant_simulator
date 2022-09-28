@@ -4,7 +4,6 @@
 use std::time::Duration;
 
 pub mod gif_recorder;
-mod gif_pix_mapping;
 
 pub trait BufConsumer {
     type Err;

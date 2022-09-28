@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io;
@@ -7,13 +6,11 @@ use std::path::Path;
 use std::time::Duration;
 use gif::{EncodingError, Frame};
 use crate::{BufConsumer, RgbaBufRef};
-use crate::gif_pix_mapping::PIX_MAP;
 
 pub struct GIFRecorder {
     writer: gif::Encoder<File>,
     width: u16,
     height: u16,
-    palette: HashMap<[u8; 3], u8>,
     idx_buffer: Vec<u8>,
 }
 
@@ -41,11 +38,8 @@ impl GIFRecorder {
             return Err(NewGifRecorderError::FileAlreadyExists);
         }
         let file = File::options().create_new(!allow_replace).create(true).write(true).open(file).map_err(NewGifRecorderError::FileErr)?;
-        let palette = Self::create_palette();
-        let mut palette_vec = palette.iter().collect::<Vec<_>>();
-        palette_vec.sort_unstable_by_key(|(_, i)| **i);
-        let palette_vec = palette_vec.into_iter().flat_map(|(p, _)| *p).collect::<Vec<_>>();
-        let enc = gif::Encoder::new(file, width, height, &palette_vec)
+        let palette_vec = Self::palette_vec();
+        let enc = gif::Encoder::new(file, width, height, &palette_vec.into_iter().flat_map(|b|b).collect::<Vec<_>>())
             .map_err(|err| match err {
                 EncodingError::Format(_) => NewGifRecorderError::FormatErr,
                 EncodingError::Io(err) => NewGifRecorderError::FileErr(err)
@@ -54,15 +48,13 @@ impl GIFRecorder {
             writer: enc,
             width,
             height,
-            palette,
             idx_buffer: vec![0u8; height as usize * width as usize],
         };
         Ok(rec)
     }
     pub fn new_frame(&mut self, frame: impl Iterator<Item=[u8; 3]>, delay: Duration) -> Result<(), GifFrameError> {
-        frame.map(|pix| Self::map_to_palette(pix).map_err(|req|(pix, req))).zip(self.idx_buffer.iter_mut())
-            .try_for_each(|(i, buf)| i.map(|i| {*buf = i; ()}))
-            .unwrap();
+        frame.map(|pix| Self::map_to_palette_vec(pix)).zip(self.idx_buffer.iter_mut())
+            .for_each(|(i, buf)| *buf = i);
         let frame = Frame {
             width: self.width,
             height: self.height,
@@ -76,41 +68,39 @@ impl GIFRecorder {
             EncodingError::Io(err) => GifFrameError::IOError(err),
         })
     }
-    fn create_palette() -> HashMap<[u8; 3], u8> {
-        let mut res = HashMap::with_capacity(256);
-        macro_rules! insert {
-            (($r: expr, $g: expr, $b: expr)) => {res.insert([$r, $g, $b], res.len() as u8)};
-        }
-        insert!((0, 0, 0));
-        insert!((0xFF, 0xFF, 0xFF));
-        insert!((0xAF, 0xAF, 0xAF));
-        insert!((0xFF, 0xFF, 0));
-        res.insert(F_ANT, res.len() as u8);
+    fn palette_vec() -> Vec<[u8; 3]> {
+        let mut res = Vec::new();
+        res.push([0, 0, 0]);
+        res.push([0xFF, 0xFF, 0xFF]);
+        res.push([0xAF, 0xAF, 0xAF]);
+        res.push([0xFF, 0xFF, 0]);
+        res.push(F_ANT);
         for i in 0..=(u8::MAX / FOOD_RES) {
-            insert!((0, i * FOOD_RES, 0));
+            res.push([0, i * FOOD_RES, 0]);
         }
         for i in 0..=(u8::MAX / P_RES) {
             for j in 0..=(u8::MAX / P_RES) {
-                insert!((i * P_RES, 0, j * P_RES));
+                res.push([i * P_RES, 0, j * P_RES]);
             }
         }
-        assert!(res.len() <= 256);
         res
     }
-    fn map_to_palette(pix: [u8; 3]) -> Result<u8, [u8; 3]> {
-        if let Some(i) = PIX_MAP.get(&pix) {
-            return Ok(*i);
+    fn map_to_palette_vec(pix: [u8; 3]) -> u8 {
+        if pix == [0, 0, 0] {
+            0
+        } else if pix == [0xFF, 0xFF, 0xFF] {
+            1
+        } else if pix == [0xAF, 0xAF, 0xAF] {
+            2
+        } else if pix == [0xFF, 0xFF, 0] {
+            3
+        } else if pix[0] > 0 && pix[1] == 0xFF && pix[2] > 0  {
+            4
+        } else if pix[0] == 0 && pix[1] > 0 && pix[2] == 0 {
+            5 + (pix[1] / FOOD_RES)
+        } else {
+            5 + (u8::MAX / FOOD_RES + 1) + (pix[0] / P_RES) * (u8::MAX / P_RES + 1) + (pix[2] / P_RES)
         }
-        if pix[0] > 0 && pix[1] == 0xFF && pix[2] > 0 {
-            let f_ant = [0xFF / 2, 0xFF, 0xFF / 2];
-            return PIX_MAP.get(&f_ant).copied().ok_or(f_ant);
-        }
-        if pix[0] == 0 && pix[1] > 0 && pix[2] == 0 {
-            let f_pix = [0, (pix[1] / FOOD_RES) * FOOD_RES, 0];
-            return PIX_MAP.get(&f_pix).copied().ok_or(f_pix);
-        }
-        let adj_pix = [(pix[0] / P_RES) * P_RES, 0, (pix[2] / P_RES) * P_RES];
-        PIX_MAP.get(&adj_pix).copied().ok_or(adj_pix)
     }
 }
 

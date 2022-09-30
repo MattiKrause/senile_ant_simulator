@@ -76,7 +76,8 @@ impl SaveFileClass {
         self.extend_path_buf(name);
         Self::read_save_from(&self.path_buf, get_sim)
     }
-    pub fn read_save_from<A:AntSim>(path_buf: &Path, get_sim: impl FnOnce(Dimensions) -> Result<A, ()>)-> Result<AntSimulator<A>, ReadSaveFileError>  {
+    pub fn read_save_from<A:AntSim>(path_buf: impl AsRef<Path>, get_sim: impl FnOnce(Dimensions) -> Result<A, ()>)-> Result<AntSimulator<A>, ReadSaveFileError>  {
+        let path_buf = path_buf.as_ref();
         if !path_buf.exists() {
             return Err(ReadSaveFileError::FileDoesNotExist);
         }

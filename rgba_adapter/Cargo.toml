@@ -1,10 +1,9 @@
 [package]
-name = "recorder"
+name = "rgba_adapter"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gif = "0.11"
-rgba_adapter = { path = "../rgba_adapter" }
+ant_sim = { path = ".." }

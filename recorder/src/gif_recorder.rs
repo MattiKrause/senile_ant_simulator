@@ -5,7 +5,8 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 use gif::{EncodingError, Frame};
-use crate::{BufConsumer, RgbaBufRef};
+use crate::{BufConsumer};
+use rgba_adapter::RgbaBufRef;
 
 pub struct GIFRecorder {
     writer: gif::Encoder<File>,
@@ -109,7 +110,7 @@ impl BufConsumer for GIFRecorder {
     type Buf<'a> = RgbaBufRef<'a>;
 
     fn write_buf<'b>(&mut self, buf: RgbaBufRef<'b>, delay: Duration) -> Result<(), GifFrameError> {
-        let as_rgb = buf.0.chunks_exact(4).map(|chunk| {
+        let as_rgb = buf.into_ref().chunks_exact(4).map(|chunk| {
             let mut pix = [0u8; 3];
             pix.copy_from_slice(&chunk[0..3]);
             pix

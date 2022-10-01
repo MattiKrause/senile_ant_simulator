@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub mod save_subsystem;
+pub mod save_io;
 
 use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
 use ant_sim::ant_sim_ant::{Ant, AntState};

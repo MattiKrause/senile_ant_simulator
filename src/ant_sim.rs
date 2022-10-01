@@ -1,4 +1,5 @@
 use std::cmp::min;
+use std::collections::HashMap;
 use crate::ant_sim_ant::{Ant, AntState};
 use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
 
@@ -134,7 +135,7 @@ impl<A: AntSim> AntSimulator<A> {
                 }
                 _ => {
                     let seed = self.seed + i as u64;
-                    ant.move_to_next2::<fasthash::mum::Hasher64>(seed, self.config.distance_points.as_ref(), &self.sim, visual_buffer);
+                    ant.move_to_next2::<rustc_hash::FxHasher>(seed, self.config.distance_points.as_ref(), &self.sim, visual_buffer);
                 }
             }
         }

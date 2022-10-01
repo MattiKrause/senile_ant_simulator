@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use ant_sim::ant_sim::AntSimulator;
 use ant_sim::ant_sim_frame::AntSim;
-use crate::{AntSimData, Dimensions};
+use crate::{Dimensions};
+use crate::save_io::{decode_save, DecodeSaveError, encode_save, EncodeSaveError};
 
 pub struct SaveFileClass {
     path: PathBuf,
@@ -14,14 +15,19 @@ pub struct SaveFileClass {
 pub enum CreateSaveFileClassError {
     PathNotDictionary, FailedToCreateParentDir(io::Error)
 }
+#[derive(Debug)]
 pub enum WriteSaveFileError {
     PathNotFile, FileExists, FailedToWriteFile(io::Error), InvalidData
 }
+#[derive(Debug)]
 pub enum ReadSaveFileError {
     PathNotFile, FileDoesNotExist, FailedToRead(io::Error), InvalidFormat(String), InvalidData(String)
 }
+#[derive(Debug)]
 pub enum NewestSaveError {
-    IOErr(io::Error), NoSave, OperationNotSupported
+    IOErr(io::Error),
+    NoSave,
+    OperationNotSupported
 }
 
 impl SaveFileClass {
@@ -58,18 +64,13 @@ impl SaveFileClass {
             }
         }
 
-        let repr = AntSimData::from_state_sim(sim).map_err(|_| WriteSaveFileError::InvalidData)?;
         let mut file = File::options().create(true).write(true).read(false)
             .open(&self.path_buf)
             .map_err(WriteSaveFileError::FailedToWriteFile)?;
-        serde_json::to_writer(&mut file, &repr).map_err(|err| {
-            if err.is_io() {
-                WriteSaveFileError::FailedToWriteFile(err.into())
-            } else {
-                WriteSaveFileError::InvalidData
-            }
-        })?;
-        return Ok(())
+        encode_save(&mut file, sim).map_err(|err| match err {
+            EncodeSaveError::FailedToWrite(err) => WriteSaveFileError::FailedToWriteFile(err),
+            EncodeSaveError::InvalidData => WriteSaveFileError::InvalidData
+        })
     }
     pub fn read_save<A: AntSim>(&mut self, name: impl AsRef<Path>, get_sim: impl FnOnce(Dimensions) -> Result<A, ()>) -> Result<AntSimulator<A>, ReadSaveFileError> {
         let name = name.as_ref();
@@ -84,15 +85,13 @@ impl SaveFileClass {
         let mut file = File::options().read(true)
             .open(path_buf)
             .map_err(ReadSaveFileError::FailedToRead)?;
-        let data: AntSimData = serde_json::from_reader(&mut file).map_err(|err| {
-            if err.is_io() {
-                ReadSaveFileError::FailedToRead(err.into())
-            } else {
-                ReadSaveFileError::InvalidFormat(format!("invalid data format at L{}:C{}: {}", err.line(), err.column(), err))
-            }
-        })?;
-        data.try_into_board(get_sim).map_err(|err| ReadSaveFileError::InvalidData(err))
+        decode_save(&mut file, get_sim).map_err(|err| match err {
+            DecodeSaveError::InvalidFormat(err) => ReadSaveFileError::InvalidFormat(err),
+            DecodeSaveError::InvalidData(err) => ReadSaveFileError::InvalidData(err),
+            DecodeSaveError::FailedToRead(err) => ReadSaveFileError::FailedToRead(err),
+        })
     }
+
     pub fn all_files(&mut self) -> io::Result<impl Iterator<Item = DirEntry>> {
         Ok(std::fs::read_dir(&self.path)?.filter_map(Result::ok))
     }

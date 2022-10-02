@@ -1,12 +1,12 @@
 use std::fmt::{Debug, Formatter};
 use crate::load_file_service::{FileParsingCompleted, FileParsingError, LoadFileService};
 use crate::service_handle::{transform, TransService};
-use std::sync::mpsc::{Sender as ChannelSender, Sender};
+use async_std::channel::{Sender as ChannelSender, Sender};
 use crate::app::AppEvents;
 
 pub struct Services {
     pub mailbox_in: ChannelSender<AppEvents>,
-    pub load_file: Option<LoadFileService<TransService<AppEvents, ChannelSender<AppEvents>>>>,
+    pub load_file: Option<LoadFileService>,
 }
 
 impl Debug for AppEvents {
@@ -37,7 +37,7 @@ impl TryFrom<AppEvents> for FileParsingCompleted {
     }
 }
 
-pub fn load_file_service(mailbox: ChannelSender<AppEvents>) -> Option<LoadFileService<TransService<AppEvents, ChannelSender<AppEvents>>>> {
+pub fn load_file_service(mailbox: ChannelSender<AppEvents>) -> Option<LoadFileService> {
     let trans_service = transform(mailbox);
     let service = LoadFileService::new(trans_service);
     match service {

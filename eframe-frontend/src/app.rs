@@ -1,9 +1,12 @@
 use std::fmt::Debug;
 use std::mem::replace;
-use std::sync::mpsc::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
+use std::ops::Mul;
+use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
 use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
-use egui::{Color32, ColorImage, DroppedFile, Image, ImageData, TextureHandle, Widget};
+use egui::{Color32, ColorImage, DroppedFile, Frame, Image, ImageData, Rect, RichText, TextFormat, TextureHandle, Widget, WidgetText};
+use egui::style::Margin;
+use egui::text::LayoutJob;
 use egui_extras::RetainedImage;
 use ant_sim::ant_sim::AntSimulator;
 use ant_sim::ant_sim_frame::AntSim;
@@ -54,7 +57,7 @@ impl AppState {
     fn create_new(cc: &eframe::CreationContext<'_>) -> Self {
         let colored_image = ColorImage::new([1, 1], Color32::from_rgba_unmultiplied(0, 0, 0, 0xFF));
         let texture = cc.egui_ctx.load_texture("ant_sim background", colored_image, TextureFilter::Nearest);
-        let mailbox = std::sync::mpsc::channel();
+        let mailbox = async_std::channel::unbounded();
         let services = Services {
             load_file: load_file_service(mailbox.0.clone()),
             mailbox_in: mailbox.0,
@@ -70,7 +73,7 @@ impl AppState {
     }
 
     fn handle_dropped_file(&mut self, files: &[DroppedFile]) {
-        if files.len() != 1 {
+        if files.len() > 1 {
             self.error_stack.push(String::from("please drop only one file at once"));
             return;
         }
@@ -85,20 +88,17 @@ impl AppState {
             return;
         };
         #[cfg(not(target_arch = "wasm32"))]
-        let message = file.path.clone().map(|path_buf| DroppedFileMessage { path_buf });
+            let message = file.path.clone().map(|path_buf| DroppedFileMessage { path_buf });
         #[cfg(target_arch = "wasm32")]
-        let message = file.bytes.clone().map(|bytes| DroppedFileMessage { bytes });
+            let message = file.bytes.clone().map(|bytes| DroppedFileMessage { bytes });
         if let Some(m) = message {
-            let send_res = service.send(LoadFileMessages::DroppedFileMessage(m));
+            let send_res = service.try_send(LoadFileMessages::DroppedFileMessage(m));
             match send_res {
                 Ok(res) => {
-                    self.services.load_file = Some(res);
+                    self.services.load_file = Some(res.0);
                 }
                 Err(err) => {
-                    let err = match err.1 {
-                        LoadFileError::SenderDied(_) => format!("LoadFileService: Sender died"),
-                        LoadFileError::IrregularError(err) => format!("LoadFileService: {err}")
-                    };
+                    let err = format!("sender err");
                     log::error!(target: "LoadFileService", "{err}");
                     self.services.load_file = load_file_service(self.services.mailbox_in.clone());
                 }
@@ -122,13 +122,15 @@ impl eframe::App for AppState {
                 AppEvents::ReplaceSim(ant_sim) => {
                     match ant_sim {
                         Ok(res) => self.game_image.set(sim_to_image(&res), TextureFilter::Nearest),
-                        Err(err) => log::warn!("err: {err}")
+                        Err(err) => {
+                            self.error_stack.push(format!("Filed to load save: {err}"));
+                        }
                     }
                 }
                 AppEvents::NewStateImage(_) => {}
             }
         }
-        if let Err(TryRecvError::Disconnected) = event_query {
+        if let Err(TryRecvError::Closed) = event_query {
             panic!("services down!");
         }
 
@@ -177,9 +179,11 @@ impl eframe::App for AppState {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::panel::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center).with_cross_align(egui::Align::Center), |ui| {
+                egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
+            });
             ui.heading("eframe template");
             ui.hyperlink("https://github.com/emilk/eframe_template");
             ui.add(egui::github_link_file!(
@@ -188,6 +192,24 @@ impl eframe::App for AppState {
             ));
             egui::warn_if_debug_build(ui);
         });
+
+        let mut error_stack = &mut self.error_stack;
+        if let Some(err) = error_stack.last().cloned() {
+            egui::Window::new("Error")
+                .default_size(ctx.used_size() * egui::Vec2::new(0.5, 0.5))
+                .frame(Frame::popup(ctx.style().as_ref()).fill(Color32::LIGHT_RED))
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        egui::Label::new(RichText::new(err).color(Color32::BLACK).size(25.0)).wrap(true).ui(ui);
+                        let dismiss = ui.button(RichText::new("Dismiss").size(25.0));
+                        if dismiss.clicked() {
+                            error_stack.pop();
+                        }
+                    });
+                });
+        }
 
         if false {
             egui::Window::new("Window").show(ctx, |ui| {

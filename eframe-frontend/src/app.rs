@@ -1,22 +1,39 @@
+use std::fmt::Debug;
+use std::mem::replace;
+use std::sync::mpsc::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
 use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
 use egui::{Color32, ColorImage, DroppedFile, Image, ImageData, TextureHandle, Widget};
-use egui::epaint::ImageDelta;
 use egui_extras::RetainedImage;
 use ant_sim::ant_sim::AntSimulator;
 use ant_sim::ant_sim_frame::AntSim;
 use rgba_adapter::SetRgb;
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
+use crate::app_services::{load_file_service, Services};
+use crate::load_file_service::{DroppedFileMessage, LoadFileError, LoadFileMessages, LoadFileService};
+use crate::service_handle::{SenderDiedError, ServiceHandle, TransService};
+
+type AntSimFrame = AntSimVecImpl;
+
+pub enum AppEvents {
+    ReplaceSim(Result<Box<AntSimulator<AntSimFrame>>, String>),
+    NewStateImage(ImageData),
+}
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 pub struct AppState {
     game_image: TextureHandle,
+    mailbox: ChannelReceiver<AppEvents>,
+    error_stack: Vec<String>,
+
     // Example stuff:
     label: String,
 
     // this how you opt-out of serialization of a member
     value: f32,
+    services: Services,
 }
+
 
 impl AppState {
     /// Called once before the first frame.
@@ -34,13 +51,60 @@ impl AppState {
         Self::create_new(cc)
     }
 
-    fn create_new(cc: &eframe::CreationContext<'_>) -> Self  {
+    fn create_new(cc: &eframe::CreationContext<'_>) -> Self {
         let colored_image = ColorImage::new([1, 1], Color32::from_rgba_unmultiplied(0, 0, 0, 0xFF));
         let texture = cc.egui_ctx.load_texture("ant_sim background", colored_image, TextureFilter::Nearest);
+        let mailbox = std::sync::mpsc::channel();
+        let services = Services {
+            load_file: load_file_service(mailbox.0.clone()),
+            mailbox_in: mailbox.0,
+        };
         AppState {
             game_image: texture,
+            mailbox: mailbox.1,
+            error_stack: Vec::new(),
             label: "lbl".to_string(),
-            value: 42.0
+            value: 42.0,
+            services,
+        }
+    }
+
+    fn handle_dropped_file(&mut self, files: &[DroppedFile]) {
+        if files.len() != 1 {
+            self.error_stack.push(String::from("please drop only one file at once"));
+            return;
+        }
+        let file = if let Some(file) = files.first() {
+            file
+        } else {
+            return;
+        };
+        let service = if let Some(service) = replace(&mut self.services.load_file, None) {
+            service
+        } else {
+            return;
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let message = file.path.clone().map(|path_buf| DroppedFileMessage { path_buf });
+        #[cfg(target_arch = "wasm32")]
+        let message = file.bytes.clone().map(|bytes| DroppedFileMessage { bytes });
+        if let Some(m) = message {
+            let send_res = service.send(LoadFileMessages::DroppedFileMessage(m));
+            match send_res {
+                Ok(res) => {
+                    self.services.load_file = Some(res);
+                }
+                Err(err) => {
+                    let err = match err.1 {
+                        LoadFileError::SenderDied(_) => format!("LoadFileService: Sender died"),
+                        LoadFileError::IrregularError(err) => format!("LoadFileService: {err}")
+                    };
+                    log::error!(target: "LoadFileService", "{err}");
+                    self.services.load_file = load_file_service(self.services.mailbox_in.clone());
+                }
+            }
+        } else {
+            log::warn!(target: "LoadFileService", "failed to handle file");
         }
     }
 }
@@ -49,22 +113,23 @@ impl eframe::App for AppState {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let Self { game_image, label, value } = self;
-        {
-            let files: &[DroppedFile] = &ctx.input().raw.dropped_files;
-            if let Some(f) = files.first() {
-                log::debug!("loaded image");
-                if let Some(b) = &f.bytes {
-                    let ant_sim =ant_sim_save::save_io::decode_save(&mut b.as_ref(), |sim| {
-                        let width = sim.width.try_into().map_err(|_|())?;
-                        let height = sim.width.try_into().map_err(|_|())?;
-                        AntSimVecImpl::new(width, height).map_err(|_|())
-                    });
-                    if let Ok(res) = ant_sim {
-                        game_image.set(sim_to_image(&res), TextureFilter::Nearest);
+        self.handle_dropped_file(&ctx.input().raw.dropped_files);
+
+        let mut event_query = self.mailbox.try_recv();
+        while let Ok(event) = event_query {
+            event_query = self.mailbox.try_recv();
+            match event {
+                AppEvents::ReplaceSim(ant_sim) => {
+                    match ant_sim {
+                        Ok(res) => self.game_image.set(sim_to_image(&res), TextureFilter::Nearest),
+                        Err(err) => log::warn!("err: {err}")
                     }
                 }
+                AppEvents::NewStateImage(_) => {}
             }
+        }
+        if let Err(TryRecvError::Disconnected) = event_query {
+            panic!("services down!");
         }
 
         // Examples of how to create different panels and windows.
@@ -89,9 +154,9 @@ impl eframe::App for AppState {
 
             ui.horizontal(|ui| {
                 ui.label("Write something: ");
-                ui.text_edit_singleline(label);
+                ui.text_edit_singleline(&mut self.label);
             });
-
+            let mut value = &mut self.value;
             ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
             if ui.button("Increment").clicked() {
                 *value += 1.0;
@@ -114,7 +179,7 @@ impl eframe::App for AppState {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
-            egui::Image::new(game_image.id(), [300.0, 300.0]).ui(ui);
+            egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
             ui.heading("eframe template");
             ui.hyperlink("https://github.com/emilk/eframe_template");
             ui.add(egui::github_link_file!(
@@ -142,7 +207,7 @@ impl eframe::App for AppState {
 
 fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> ImageData {
     struct ImageRgba<'a>(&'a mut [Color32]);
-    impl <'a> SetRgb for ImageRgba<'a> {
+    impl<'a> SetRgb for ImageRgba<'a> {
         #[inline(always)]
         fn len(&self) -> usize {
             self.0.len()
@@ -157,6 +222,6 @@ fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> ImageData {
     rgba_adapter::draw_to_buf(sim, ImageRgba(&mut image_buf));
     ImageData::Color(ColorImage {
         size: [sim.sim.width(), sim.sim.height()],
-        pixels: image_buf
+        pixels: image_buf,
     })
 }

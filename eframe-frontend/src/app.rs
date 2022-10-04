@@ -14,7 +14,7 @@ use ant_sim::ant_sim_frame::AntSim;
 use rgba_adapter::SetRgb;
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 use crate::app_services::{load_file_service, Services, update_service};
-use crate::load_file_service::{DroppedFileMessage, LoadFileError, LoadFileMessages, LoadFileService};
+use crate::load_file_service::{DroppedFileMessage, LoadFileMessages, LoadFileService};
 use crate::service_handle::{SenderDiedError, ServiceHandle, TransService};
 use crate::sim_update_service::SimUpdaterMessage;
 

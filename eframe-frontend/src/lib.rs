@@ -9,6 +9,7 @@ mod app_services;
 mod sim_computation_service;
 mod sim_update_service;
 mod time_polyfill;
+mod channel_actor;
 
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 pub use app::AppState;

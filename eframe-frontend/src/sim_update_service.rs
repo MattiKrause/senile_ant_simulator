@@ -8,8 +8,9 @@ use async_std::future::{timeout, TimeoutError};
 use async_trait::async_trait;
 use egui::{Color32, ColorImage};
 use ant_sim::ant_sim_frame::AntSim;
+use crate::channel_actor::*;
 use crate::service_handle::*;
-use crate::sim_computation_service::{SimComputeMessage, SimStepComputationService};
+use crate::sim_computation_service::{SimComputationService, SimComputeMessage};
 use crate::time_polyfill::*;
 
 pub enum SimUpdaterMessage {
@@ -56,12 +57,7 @@ impl SimUpdateService {
     {
         let actor = ChannelActor::new_actor::<_, _, _, SimUpdateError<S::Err>, _, _>("SimUpdateService", send_to, move |rec, mut send_to, this| {
             let mut compute_channel = async_std::channel::unbounded();
-            let compute = SimStepComputationService::new(compute_channel.0)
-                .map_err(|err| format!("Failed to create update service"));
-            let mut compute = match compute {
-                Ok(v) => v,
-                Err(err) => return ServiceCreateResult::Err(err)
-            };
+            let mut  compute = SimComputationService::new(compute_channel.0);
             let mut timer = match Timer::new() {
                 Ok(t) => t,
                 Err(err) => return ServiceCreateResult::Err(format!("failed to query time: {err}"))

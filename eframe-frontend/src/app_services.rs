@@ -65,13 +65,7 @@ impl TryFrom<AppEvents> for SimUpdateServiceMessage {
 pub fn load_file_service(mailbox: ChannelSender<AppEvents>) -> Option<LoadFileService> {
     let trans_service = transform(mailbox);
     let service = LoadFileService::new(trans_service);
-    match service {
-        Ok(s) => Some(s),
-        Err(err) => {
-            log::debug!(target: "LoadFileService", "cannot create service: {err}");
-            None
-        }
-    }
+    Some(service)
 }
 
 pub fn update_service(mailbox: ChannelSender<AppEvents>, delay: Duration, sim: AntSimulator<AntSimFrame>) -> Option<SimUpdateService> {

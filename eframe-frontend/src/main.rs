@@ -8,8 +8,6 @@ fn main() {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Debug).init().expect("failed to log:(");
-
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(

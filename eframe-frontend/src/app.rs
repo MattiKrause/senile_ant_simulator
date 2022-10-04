@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::mem::replace;
 use std::ops::Mul;
+use std::time::Duration;
 use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
 use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
@@ -8,13 +9,14 @@ use egui::{Color32, ColorImage, DroppedFile, Frame, Image, ImageData, Rect, Rich
 use egui::style::Margin;
 use egui::text::LayoutJob;
 use egui_extras::RetainedImage;
-use ant_sim::ant_sim::AntSimulator;
+use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
 use ant_sim::ant_sim_frame::AntSim;
 use rgba_adapter::SetRgb;
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
-use crate::app_services::{load_file_service, Services};
+use crate::app_services::{load_file_service, Services, update_service};
 use crate::load_file_service::{DroppedFileMessage, LoadFileError, LoadFileMessages, LoadFileService};
 use crate::service_handle::{SenderDiedError, ServiceHandle, TransService};
+use crate::sim_update_service::SimUpdaterMessage;
 
 type AntSimFrame = AntSimVecImpl;
 
@@ -60,6 +62,7 @@ impl AppState {
         let mailbox = async_std::channel::unbounded();
         let services = Services {
             load_file: load_file_service(mailbox.0.clone()),
+            update: update_service(mailbox.0.clone(), Duration::from_millis(200), default_ant_sim()),
             mailbox_in: mailbox.0,
         };
         AppState {
@@ -121,13 +124,24 @@ impl eframe::App for AppState {
             match event {
                 AppEvents::ReplaceSim(ant_sim) => {
                     match ant_sim {
-                        Ok(res) => self.game_image.set(sim_to_image(&res), TextureFilter::Nearest),
+                        Ok(res) => {
+                            if let Some(update) = replace(&mut self.services.update, None) {
+                                if let Ok(service) = update.try_send(SimUpdaterMessage::NewSim(res)) {
+                                    self.services.update = Some(service.0);
+                                } else {
+                                    panic!("services down!")
+                                }
+                            }
+                        },
                         Err(err) => {
-                            self.error_stack.push(format!("Filed to load save: {err}"));
+                            self.error_stack.push(format!("Failed to load save: {err}"));
                         }
                     }
                 }
-                AppEvents::NewStateImage(_) => {}
+                AppEvents::NewStateImage(image) => {
+                    self.game_image.set(image, TextureFilter::Nearest);
+                    ctx.request_repaint();
+                }
             }
         }
         if let Err(TryRecvError::Closed) = event_query {
@@ -247,3 +261,31 @@ fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> ImageData {
         pixels: image_buf,
     })
 }
+
+fn default_ant_sim() -> AntSimulator<AntSimFrame> {
+    let sim = AntSimFrame::new(300, 300).unwrap();
+
+    AntSimulator {
+        sim,
+        ants: Vec::new(),
+        seed: 42,
+        config: AntSimConfig {
+            distance_points: Box::new(POINTS_R1),
+            food_haul_amount: 255,
+            pheromone_decay_amount: 255,
+            seed_step: 0,
+            visual_range: AntVisualRangeBuffer::new(3)
+        }
+    }
+}
+
+static POINTS_R1: [(f64, f64); 8] = [
+    (1.0, 0.0),
+    (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (0.0, 1.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
+    (-1.0, 0.0),
+    (-std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
+    (-0.0, -1.0),
+    (std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
+];

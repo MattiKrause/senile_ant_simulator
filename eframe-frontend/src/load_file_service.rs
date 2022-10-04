@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use ant_sim::ant_sim::AntSimulator;
 use crate::AntSimFrame;
-use crate::service_handle::{join_with_timeout, SenderDiedError, ServiceHandle};
+use crate::service_handle::{SenderDiedError, ServiceHandle};
 use async_trait::async_trait;
 
 pub enum LoadFileMessages {

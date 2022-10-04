@@ -33,7 +33,7 @@ simple_logger = "2.3.0"
 console_error_panic_hook = "0.1.6"
 tracing-wasm = "0.2"
 console_log = "0.2.0"
-web-sys = "0.3.60"
+web-sys = { version = "0.3.60", features = ["Performance", "Window"] }
 wasm-bindgen-futures = "0.4.33"
 
 [profile.release]

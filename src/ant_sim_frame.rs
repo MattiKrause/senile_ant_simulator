@@ -74,4 +74,5 @@ pub trait AntSim {
     fn cells(&self) -> Self::Cells<'_>;
     fn width(&self) -> usize;
     fn height(&self) -> usize;
+    fn cell_count(&self) -> usize { self.width() * self.height() }
 }

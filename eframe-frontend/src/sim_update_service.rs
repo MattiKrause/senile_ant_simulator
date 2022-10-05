@@ -18,10 +18,12 @@ pub enum SimUpdaterMessage {
     Pause(bool),
     ImmediateNextFrame,
     NewSim(Box<AntSimulator<AntSimFrame>>),
+    RequestCurrentState
 }
 
 pub enum SimUpdateServiceMessage {
-    NewFrame(egui::ImageData)
+    NewFrame(egui::ImageData),
+    CurrentState(Box<AntSimulator<AntSimFrame>>)
 }
 
 pub type SimUpdateService = ChannelActor<SimUpdaterMessage>;
@@ -68,6 +70,7 @@ impl SimUpdateService {
                 let mut paused = false;
                 let mut ignore_updates = 0u32;
                 let mut next_scheduled_update = timer.now();
+                let mut save_requested = false;
                 compute = compute.send(SimComputeMessage(sim.clone(), sim))
                     .await
                     .map_err(|_| SimUpdateError::comp_service_died())?;
@@ -94,6 +97,9 @@ impl SimUpdateService {
                                 next_scheduled_update = timer.now();
                                 ignore_updates += 1;
                             }
+                            SimUpdaterMessage::RequestCurrentState => {
+                                save_requested = true;
+                            }
                         }
                         continue;
                     }
@@ -109,6 +115,12 @@ impl SimUpdateService {
 
                     let image = Self::sim_to_image(update.0.as_ref());
                     next_scheduled_update = timer.now().checked_add(delay).unwrap_or(next_scheduled_update);
+                    if save_requested {
+                        save_requested = false;
+                        send_to = send_to.send(SimUpdateServiceMessage::CurrentState(update.0.clone()))
+                            .await
+                            .map_err(|(_, err)| SimUpdateError::SenderError(err))?;
+                    }
                     send_to = send_to.send(SimUpdateServiceMessage::NewFrame(image))
                         .await
                         .map_err(|(_, err)| SimUpdateError::SenderError(err))?;

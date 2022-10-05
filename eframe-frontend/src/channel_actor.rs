@@ -8,6 +8,7 @@ pub struct ChannelActor<M: 'static + Send> {
     pub task_q: ChannelSender<M>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub trait ConditionalSend: Send {}
 #[cfg(not(target_arch = "wasm32"))]
 impl <T: Send> ConditionalSend for T {}

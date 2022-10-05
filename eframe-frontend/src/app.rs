@@ -1,19 +1,22 @@
 use std::fmt::Debug;
 use std::mem::replace;
 use std::ops::Mul;
+use std::path::PathBuf;
 use std::time::Duration;
 use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
 use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
-use egui::{Color32, ColorImage, DroppedFile, Frame, Image, ImageData, Rect, RichText, TextFormat, TextureHandle, Widget, WidgetText};
+use egui::{Color32, ColorImage, DroppedFile, Event, Frame, Image, ImageData, Key, Rect, RichText, TextFormat, TextureHandle, Widget, WidgetText};
 use egui::style::Margin;
 use egui::text::LayoutJob;
 use egui_extras::RetainedImage;
+use rfd::AsyncFileDialog;
 use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
 use ant_sim::ant_sim_frame::AntSim;
 use rgba_adapter::SetRgb;
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 use crate::app_services::{load_file_service, Services, update_service};
+use crate::channel_actor::ChannelActor;
 use crate::load_file_service::{DroppedFileMessage, LoadFileMessages, LoadFileService};
 use crate::service_handle::{SenderDiedError, ServiceHandle, TransService};
 use crate::sim_update_service::SimUpdaterMessage;
@@ -23,6 +26,9 @@ type AntSimFrame = AntSimVecImpl;
 pub enum AppEvents {
     ReplaceSim(Result<Box<AntSimulator<AntSimFrame>>, String>),
     NewStateImage(ImageData),
+    SetPreferredSearchPath(PathBuf),
+    CurrentVersion(Box<AntSimulator<AntSimFrame>>),
+    Error(String)
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -30,6 +36,8 @@ pub struct AppState {
     game_image: TextureHandle,
     mailbox: ChannelReceiver<AppEvents>,
     error_stack: Vec<String>,
+    save_requested: bool,
+    preferred_path: Option<PathBuf>,
 
     // Example stuff:
     label: String,
@@ -43,7 +51,6 @@ pub struct AppState {
 impl AppState {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        log::debug!("started app");
 
         // This is also where you can customized the look at feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
@@ -69,6 +76,8 @@ impl AppState {
             game_image: texture,
             mailbox: mailbox.1,
             error_stack: Vec::new(),
+            save_requested: false,
+            preferred_path: None,
             label: "lbl".to_string(),
             value: 42.0,
             services,
@@ -76,6 +85,9 @@ impl AppState {
     }
 
     fn handle_dropped_file(&mut self, files: &[DroppedFile]) {
+        if files.len() > 0 {
+            log::debug!(target: "App", "files dropped: {:?}", files.iter().map(|f|&f.name).collect::<Vec<_>>())
+        }
         if files.len() > 1 {
             self.error_stack.push(String::from("please drop only one file at once"));
             return;
@@ -85,6 +97,7 @@ impl AppState {
         } else {
             return;
         };
+        log::debug!(target: "App", "file {} was dropped", file.name);
         let service = if let Some(service) = replace(&mut self.services.load_file, None) {
             service
         } else {
@@ -116,13 +129,48 @@ impl eframe::App for AppState {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_dropped_file(&ctx.input().raw.dropped_files);
-
+        let input = ctx.input();
+        self.handle_dropped_file(&input.raw.dropped_files);
+        if input.modifiers.ctrl && input.key_pressed(egui::Key::L) {
+            if let Some(service) = replace(&mut self.services.load_file, None) {
+                let mut prompt_builder = rfd::AsyncFileDialog::new().set_title("Load save state");
+                if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
+                    prompt_builder = prompt_builder.set_directory(path);
+                }
+                let prompt = prompt_builder.pick_file();
+                match service.try_send(LoadFileMessages::LoadFileMessage(Box::pin(prompt))) {
+                    Ok(ready) => {
+                        self.services.load_file = Some(ready.0);
+                    }
+                    Err(err) => {
+                        log::warn!(target:"App", "LoadFileService failed")
+                    }
+                }
+            }
+        }
+        if input.modifiers.ctrl && input.key_pressed(egui::Key::S) {
+            self.save_requested = true;
+            if let Some(service) = replace(&mut self.services.update, None) {
+                match service.try_send(SimUpdaterMessage::RequestCurrentState) {
+                    Ok((c, _)) => {
+                        self.services.update = Some(c);
+                    }
+                    Err(_) => {
+                        panic!("update service down");
+                    }
+                }
+            }
+        }
+        if input.key_pressed(Key::P) {
+            log::debug!("pause");
+        }
+        drop(input);
         let mut event_query = self.mailbox.try_recv();
         while let Ok(event) = event_query {
             event_query = self.mailbox.try_recv();
             match event {
                 AppEvents::ReplaceSim(ant_sim) => {
+                    log::debug!(target: "App", "Received new simulation instance");
                     match ant_sim {
                         Ok(res) => {
                             if let Some(update) = replace(&mut self.services.update, None) {
@@ -132,7 +180,7 @@ impl eframe::App for AppState {
                                     panic!("services down!")
                                 }
                             }
-                        },
+                        }
                         Err(err) => {
                             self.error_stack.push(format!("Failed to load save: {err}"));
                         }
@@ -141,6 +189,32 @@ impl eframe::App for AppState {
                 AppEvents::NewStateImage(image) => {
                     self.game_image.set(image, TextureFilter::Nearest);
                     ctx.request_repaint();
+                }
+                AppEvents::SetPreferredSearchPath(path) => {
+                    self.preferred_path = Some(path);
+                }
+                AppEvents::CurrentVersion(sim) => {
+                    if self.save_requested {
+                        self.save_requested = false;
+                        if let Some(service) = replace(&mut self.services.load_file, None) {
+                            let mut prompt_builder = AsyncFileDialog::new().set_file_name("ant_sim_save.txt").set_title("save simulation state");
+                            if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
+                                prompt_builder = prompt_builder.set_directory(path);
+                            }
+                            let prompt = prompt_builder.save_file();
+                            match service.try_send(LoadFileMessages::SaveStateMessage(Box::pin(prompt), sim)) {
+                                Ok((service, _)) => {
+                                    self.services.load_file = Some(service);
+                                }
+                                Err(_) => {
+                                    log::warn!("File services down!");
+                                }
+                            };
+                        }
+                    }
+                }
+                AppEvents::Error(err) => {
+                    self.error_stack.push(err);
                 }
             }
         }
@@ -224,15 +298,6 @@ impl eframe::App for AppState {
                     });
                 });
         }
-
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally chose either panels OR windows.");
-            });
-        }
     }
 
     /// Called by the frame work to save state before shutdown.
@@ -274,8 +339,8 @@ fn default_ant_sim() -> AntSimulator<AntSimFrame> {
             food_haul_amount: 255,
             pheromone_decay_amount: 255,
             seed_step: 0,
-            visual_range: AntVisualRangeBuffer::new(3)
-        }
+            visual_range: AntVisualRangeBuffer::new(3),
+        },
     }
 }
 

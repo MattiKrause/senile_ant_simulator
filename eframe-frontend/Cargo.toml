@@ -27,6 +27,7 @@ async-trait = "0.1.57"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"
 simple_logger = "2.3.0"
+rfd = { version = "0.10.0", features = ["xdg-portal"], default-features=false }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

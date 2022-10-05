@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
-use crate::load_file_service::{FileParsingCompleted, FileParsingError, LoadFileService};
+use crate::load_file_service::{LoadFileResponse, FileParsingError, LoadFileService};
 use crate::service_handle::{transform, TransService};
 use async_std::channel::{Sender as ChannelSender, Sender};
 use ant_sim::ant_sim::AntSimulator;
@@ -19,23 +19,44 @@ impl Debug for AppEvents {
         match self {
             AppEvents::ReplaceSim(_) => write!(f, "AppEvent::ReplaceSim"),
             AppEvents::NewStateImage(_) => write!(f, "AppEvent::NewStateImage"),
+            AppEvents::SetPreferredSearchPath(_) => write!(f,  "AppEvent: UpdatePreferredPath"),
+            AppEvents::CurrentVersion(_) => write!(f, "AppEvent: CurrentVersion"),
+            AppEvents::Error(err) => write!(f, "AppEvent: Error({err})")
         }
     }
 }
 
-impl From<FileParsingCompleted> for AppEvents {
-    fn from(e: FileParsingCompleted) -> Self {
-        Self::ReplaceSim(e.0.map(Box::new).map_err(|err| err.0))
+impl From<LoadFileResponse> for AppEvents {
+    fn from(e: LoadFileResponse) -> Self {
+        match e {
+            LoadFileResponse::LoadedFile(file) => {
+                Self::ReplaceSim(file.map(Box::new).map_err(|err| err.0))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            LoadFileResponse::UpdatePreferredPath(path) => {
+                Self::SetPreferredSearchPath(path)
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            LoadFileResponse::SaveError(err) => AppEvents::Error(err)
+        }
     }
 }
 
-impl TryFrom<AppEvents> for FileParsingCompleted {
+impl TryFrom<AppEvents> for LoadFileResponse {
     type Error = AppEvents;
 
     fn try_from(value: AppEvents) -> Result<Self, Self::Error> {
         match value {
             AppEvents::ReplaceSim(s) =>
-                Ok(FileParsingCompleted(s.map(|b| *b).map_err(FileParsingError))),
+                Ok(LoadFileResponse::LoadedFile(s.map(|b| *b).map_err(FileParsingError))),
+            #[cfg(not(target_arch = "wasm32"))]
+            AppEvents::SetPreferredSearchPath(path) => {
+                Ok(LoadFileResponse::UpdatePreferredPath(path))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            AppEvents::Error(err) if err.starts_with("failed to save")=> {
+                Ok(LoadFileResponse::SaveError(err))
+            }
             value =>
                 Err(value)
         }
@@ -47,6 +68,7 @@ impl From<SimUpdateServiceMessage> for AppEvents {
     fn from(message: SimUpdateServiceMessage) -> Self {
         match message {
             SimUpdateServiceMessage::NewFrame(sim) => Self::NewStateImage(sim),
+            SimUpdateServiceMessage::CurrentState(sim) => Self::CurrentVersion(sim),
         }
     }
 }
@@ -57,6 +79,7 @@ impl TryFrom<AppEvents> for SimUpdateServiceMessage {
     fn try_from(value: AppEvents) -> Result<Self, Self::Error> {
         match value {
             AppEvents::NewStateImage(image) => Ok(SimUpdateServiceMessage::NewFrame(image)),
+            AppEvents::CurrentVersion(sim) => Ok(SimUpdateServiceMessage::CurrentState(sim)),
             state => Err(state)
         }
     }

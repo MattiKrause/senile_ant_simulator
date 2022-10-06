@@ -1,25 +1,19 @@
-use std::fmt::Debug;
 use std::mem::replace;
-use std::ops::Mul;
 use std::path::PathBuf;
 use std::time::Duration;
 use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
+use eframe::emath::Align;
 use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
-use egui::{Color32, ColorImage, DroppedFile, Event, Frame, Image, ImageData, Key, Rect, RichText, TextFormat, TextureHandle, Widget, WidgetText};
-use egui::style::Margin;
-use egui::text::LayoutJob;
-use egui_extras::RetainedImage;
-use rfd::AsyncFileDialog;
+use egui::*;
 use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
 use ant_sim::ant_sim_frame::AntSim;
 use rgba_adapter::SetRgb;
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 use crate::app_services::{load_file_service, Services, update_service};
-use crate::channel_actor::ChannelActor;
-use crate::load_file_service::{DroppedFileMessage, LoadFileMessages, LoadFileService};
-use crate::service_handle::{SenderDiedError, ServiceHandle, TransService};
-use crate::sim_update_service::SimUpdaterMessage;
+use crate::load_file_service::{DroppedFileMessage, LoadFileMessages};
+use crate::service_handle::{ServiceHandle};
+use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
 
 type AntSimFrame = AntSimVecImpl;
 
@@ -28,7 +22,12 @@ pub enum AppEvents {
     NewStateImage(ImageData),
     SetPreferredSearchPath(PathBuf),
     CurrentVersion(Box<AntSimulator<AntSimFrame>>),
-    Error(String)
+    Error(String),
+    RequestPause,
+    DelayRequest(Duration),
+    RequestLoadGame,
+    RequestSaveGame,
+    RequestLaunch,
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -38,6 +37,9 @@ pub struct AppState {
     error_stack: Vec<String>,
     save_requested: bool,
     preferred_path: Option<PathBuf>,
+    game_state: GameState,
+    input_locked: bool,
+    game_speed: GameSpeed,
 
     // Example stuff:
     label: String,
@@ -47,6 +49,15 @@ pub struct AppState {
     services: Services,
 }
 
+pub enum GameState {
+    Launched,
+    Edit(Box<AntSimulator<AntSimFrame>>),
+}
+
+pub struct GameSpeed {
+    paused: bool,
+    delay: Duration,
+}
 
 impl AppState {
     /// Called once before the first frame.
@@ -68,8 +79,8 @@ impl AppState {
         let texture = cc.egui_ctx.load_texture("ant_sim background", colored_image, TextureFilter::Nearest);
         let mailbox = async_std::channel::unbounded();
         let services = Services {
-            load_file: load_file_service(mailbox.0.clone()),
-            update: update_service(mailbox.0.clone(), Duration::from_millis(200), default_ant_sim()),
+            load_file: load_file_service(mailbox.0.clone(), cc.egui_ctx.clone()),
+            update: update_service(mailbox.0.clone(), Duration::from_millis(200), default_ant_sim(), cc.egui_ctx.clone()),
             mailbox_in: mailbox.0,
         };
         AppState {
@@ -78,10 +89,17 @@ impl AppState {
             error_stack: Vec::new(),
             save_requested: false,
             preferred_path: None,
+            game_state: GameState::Edit(Box::new(default_ant_sim())),
+            input_locked: false,
+            game_speed: GameSpeed { paused: false, delay: Duration::from_millis(200) },
             label: "lbl".to_string(),
             value: 42.0,
             services,
         }
+    }
+    
+    fn send_me(&self, event: AppEvents) {
+        let _ = ChannelSender::try_send(&self.services.mailbox_in, event);
     }
 
     fn handle_dropped_file(&mut self, files: &[DroppedFile]) {
@@ -116,55 +134,82 @@ impl AppState {
                 Err(err) => {
                     let err = format!("sender err");
                     log::error!(target: "LoadFileService", "{err}");
-                    self.services.load_file = load_file_service(self.services.mailbox_in.clone());
                 }
             }
         } else {
             log::warn!(target: "LoadFileService", "failed to handle file");
         }
     }
-}
 
-impl eframe::App for AppState {
-    /// Called each time the UI needs repainting, which may be many times per second.
-    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+
+    fn handle_input(&mut self, ctx: &egui::Context) {
         let input = ctx.input();
         self.handle_dropped_file(&input.raw.dropped_files);
+        #[cfg(not(target_arch = "wasm32"))]
         if input.modifiers.ctrl && input.key_pressed(egui::Key::L) {
-            if let Some(service) = replace(&mut self.services.load_file, None) {
-                let mut prompt_builder = rfd::AsyncFileDialog::new().set_title("Load save state");
-                if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
-                    prompt_builder = prompt_builder.set_directory(path);
-                }
-                let prompt = prompt_builder.pick_file();
-                match service.try_send(LoadFileMessages::LoadFileMessage(Box::pin(prompt))) {
-                    Ok(ready) => {
-                        self.services.load_file = Some(ready.0);
-                    }
-                    Err(err) => {
-                        log::warn!(target:"App", "LoadFileService failed")
-                    }
-                }
-            }
+            self.send_me(AppEvents::RequestLoadGame);
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if input.modifiers.ctrl && input.key_pressed(egui::Key::S) {
-            self.save_requested = true;
-            if let Some(service) = replace(&mut self.services.update, None) {
-                match service.try_send(SimUpdaterMessage::RequestCurrentState) {
-                    Ok((c, _)) => {
-                        self.services.update = Some(c);
-                    }
-                    Err(_) => {
-                        panic!("update service down");
-                    }
-                }
+            let _ = self.send_me(AppEvents::RequestSaveGame);
+        }
+        if self.input_locked { return; }
+        let new_delay = input.events.iter()
+            .filter_map(|e| if let egui::Event::Key { key, pressed, modifiers } = e {
+                Some((key, *pressed, modifiers))
+            } else {
+                None
+            })
+            .filter(|(_, pressed, _)| *pressed)
+            .filter_map(|(key, _, _)| Self::map_key_to_frame_delay(key))
+            .next();
+        if let Some(new_delay) = new_delay {
+            let _ = self.send_me(AppEvents::DelayRequest(new_delay));
+        }
+        if matches!(&self.game_state, GameState::Launched) {
+            if input.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::P, .. })) {
+                let _ = self.send_me(AppEvents::RequestPause);
             }
         }
-        if input.key_pressed(Key::P) {
-            log::debug!("pause");
+        if input.key_pressed(Key::P) && matches!(self.game_state, GameState::Launched) {
+            self.send_me(AppEvents::RequestPause);
         }
-        drop(input);
+    }
+
+    fn map_key_to_frame_delay(key: &egui::Key) -> Option<Duration> {
+        let delay_millis = match key {
+            Key::Num1 => 10,
+            Key::Num2 => 20,
+            Key::Num3 => 50,
+            Key::Num4 => 100,
+            Key::Num5 => 200,
+            Key::Num6 => 500,
+            Key::Num7 => 700,
+            Key::Num8 => 1000,
+            Key::Num9 => 3000,
+            Key::Num0 => 0,
+            _ => return None
+        };
+        Some(Duration::from_millis(delay_millis))
+    }
+
+    fn handle_events(&mut self, ctx: &egui::Context) {
+        macro_rules! resume_if_present {
+            ($service: expr) => {
+                if let Some(service) = replace(&mut $service, None) {
+                    service
+                } else {
+                    continue;
+                }
+            };
+        }
+        macro_rules! resume_if_condition {
+            ($cond: expr) => {
+                if !$cond {
+                    continue;
+                }
+            };
+        }
         let mut event_query = self.mailbox.try_recv();
         while let Ok(event) = event_query {
             event_query = self.mailbox.try_recv();
@@ -173,8 +218,10 @@ impl eframe::App for AppState {
                     log::debug!(target: "App", "Received new simulation instance");
                     match ant_sim {
                         Ok(res) => {
+                            self.game_image.set(SimUpdateService::sim_to_image(res.as_ref()), TextureFilter::Nearest);
+                            self.game_state = GameState::Edit(res);
                             if let Some(update) = replace(&mut self.services.update, None) {
-                                if let Ok(service) = update.try_send(SimUpdaterMessage::NewSim(res)) {
+                                if let Ok(service) = update.try_send(SimUpdaterMessage::Pause(true)) {
                                     self.services.update = Some(service.0);
                                 } else {
                                     panic!("services down!")
@@ -188,40 +235,152 @@ impl eframe::App for AppState {
                 }
                 AppEvents::NewStateImage(image) => {
                     self.game_image.set(image, TextureFilter::Nearest);
-                    ctx.request_repaint();
                 }
                 AppEvents::SetPreferredSearchPath(path) => {
                     self.preferred_path = Some(path);
                 }
                 AppEvents::CurrentVersion(sim) => {
+                    #[cfg(not(target_arch = "wasm32"))]
                     if self.save_requested {
+
                         self.save_requested = false;
-                        if let Some(service) = replace(&mut self.services.load_file, None) {
-                            let mut prompt_builder = AsyncFileDialog::new().set_file_name("ant_sim_save.txt").set_title("save simulation state");
-                            if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
-                                prompt_builder = prompt_builder.set_directory(path);
-                            }
-                            let prompt = prompt_builder.save_file();
-                            match service.try_send(LoadFileMessages::SaveStateMessage(Box::pin(prompt), sim)) {
-                                Ok((service, _)) => {
-                                    self.services.load_file = Some(service);
-                                }
-                                Err(_) => {
-                                    log::warn!("File services down!");
-                                }
-                            };
+                        let file_service = resume_if_present!(self.services.load_file);
+                        let mut prompt_builder = rfd::AsyncFileDialog::new()
+                            .set_file_name("ant_sim_save.txt")
+                            .set_title("save simulation state");
+                        if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
+                            prompt_builder = prompt_builder.set_directory(path);
                         }
+                        let prompt = prompt_builder.save_file();
+                        match file_service.try_send(LoadFileMessages::SaveStateMessage(Box::pin(prompt), sim)) {
+                            Ok((service, _)) => {
+                                self.services.load_file = Some(service);
+                            }
+                            Err(_) => {
+                                log::warn!("File services down!");
+                            }
+                        };
                     }
                 }
                 AppEvents::Error(err) => {
                     self.error_stack.push(err);
+                }
+                AppEvents::RequestPause => {
+                    resume_if_condition!(matches!(self.game_state, GameState::Launched));
+                    let update_service = resume_if_present!(self.services.update);
+                    self.game_speed.paused = !self.game_speed.paused;
+                    log::debug!(target: "App", "pause state: {}", self.game_speed.paused);
+                    match update_service.try_send(SimUpdaterMessage::Pause(self.game_speed.paused)) {
+                        Ok((service, _)) => {
+                            self.services.update = Some(service);
+                        }
+                        Err(_) => {}
+                    }
+                }
+                AppEvents::DelayRequest(new_delay) => {
+                    self.game_speed.delay = new_delay;
+                    let update_service = resume_if_present!(self.services.update);
+                    let send_result = update_service.try_send(SimUpdaterMessage::SetDelay(new_delay));
+                    match send_result {
+                        Ok((actor, _)) => {
+                            self.services.update = Some(actor);
+                        }
+                        Err(_) => {}
+                    }
+                }
+                AppEvents::RequestLoadGame => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let Some(service) = replace(&mut self.services.load_file, None) {
+                        let mut prompt_builder = rfd::AsyncFileDialog::new().set_title("Load save state");
+                        if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
+                            prompt_builder = prompt_builder.set_directory(path);
+                        }
+                        let prompt = prompt_builder.pick_file();
+                        match service.try_send(LoadFileMessages::LoadFileMessage(Box::pin(prompt))) {
+                            Ok(ready) => {
+                                self.services.load_file = Some(ready.0);
+                            }
+                            Err(err) => {
+                                log::warn!(target:"App", "LoadFileService failed")
+                            }
+                        }
+                    }
+                }
+                AppEvents::RequestSaveGame => {
+                    self.save_requested = true;
+                    match &self.game_state {
+                        GameState::Launched => {
+                            let update_service = resume_if_present!(self.services.update);
+                            match update_service.try_send(SimUpdaterMessage::RequestCurrentState) {
+                                Ok((c, _)) => {
+                                    self.services.update = Some(c);
+                                }
+                                Err(_) => {
+                                    panic!("update service down");
+                                }
+                            }
+                        }
+                        GameState::Edit(edit) => {
+                            self.send_me(AppEvents::CurrentVersion(edit.clone()));
+                        }
+                    }
+                }
+                AppEvents::RequestLaunch => {
+                    let edit_state = if matches!(self.game_state, GameState::Edit(_)) {
+                        match replace(&mut self.game_state,  GameState::Launched) {
+                            GameState::Edit(e) => e,
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        continue;
+                    };
+                    let update_service= replace(&mut self.services.update, None)
+                        .and_then(|service| service.try_send(SimUpdaterMessage::NewSim(edit_state)).ok())
+                        .and_then(|(service, _)| service.try_send(SimUpdaterMessage::Pause(false)).ok())
+                        .expect("update service down")
+                        .0;
+                    self.services.update = Some(update_service);
                 }
             }
         }
         if let Err(TryRecvError::Closed) = event_query {
             panic!("services down!");
         }
+    }
 
+    fn edit_side_panel(&mut self, ctx: &egui::Context) {
+        let e = if let GameState::Edit(ref mut e) = self.game_state {
+            e
+        } else {
+            return;
+        };
+        egui::SidePanel::left("side_panel").show(ctx, |ui| {
+            ui.heading("Side Panel");
+
+            ui.horizontal(|ui| {
+                ui.label("Write something: ");
+                ui.text_edit_singleline(&mut self.label);
+            });
+            let mut value = &mut self.value;
+            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
+            if ui.button("Increment").clicked() {
+                *value += 1.0;
+            }
+            if ui.button("Start").clicked() {
+                self.send_me(AppEvents::RequestLaunch)
+            }
+
+
+        });
+    }
+}
+
+impl eframe::App for AppState {
+    /// Called each time the UI needs repainting, which may be many times per second.
+    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_input(ctx);
+        self.handle_events(ctx);
         // Examples of how to create different panels and windows.
         // Pick whichever suits you.
         // Tip: a good default choice is to just keep the `CentralPanel`.
@@ -238,20 +397,35 @@ impl eframe::App for AppState {
                 });
             });
         });
-
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
+        if let GameState::Edit(_) = self.game_state {
+            self.edit_side_panel(ctx);
+        }
+        egui::panel::CentralPanel::default().show(ctx, |ui| {
+            ui.with_layout(egui::Layout::top_down(Align::Min).with_cross_align(Align::Max), |ui| {
+                let text = if matches!(self.game_state, GameState::Edit { .. }) {
+                    String::from("Edit")
+                } else if self.game_speed.paused {
+                    String::from("Paused")
+                } else {
+                    let mut str = format!("{:.2}s", self.game_speed.delay.as_secs_f64());
+                    if str.ends_with(".0s") {
+                        str.replace_range((str.len() - 3).., "s");
+                    }
+                    str
+                };
+                ui.label(RichText::new(text).size(20.));
             });
-            let mut value = &mut self.value;
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
-            }
-
+            // The central panel the region left after adding TopPanel's and SidePanel's
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center).with_cross_align(egui::Align::Center), |ui| {
+                egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
+            });
+            ui.heading("eframe template");
+            ui.hyperlink("https://github.com/emilk/eframe_template");
+            ui.add(egui::github_link_file!(
+                "https://github.com/emilk/eframe_template/blob/master/",
+                "Source code."
+            ));
+            egui::warn_if_debug_build(ui);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
@@ -265,20 +439,6 @@ impl eframe::App for AppState {
                     ui.label(".");
                 });
             });
-        });
-
-        egui::panel::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center).with_cross_align(egui::Align::Center), |ui| {
-                egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
-            });
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
-            egui::warn_if_debug_build(ui);
         });
 
         let mut error_stack = &mut self.error_stack;
@@ -297,6 +457,7 @@ impl eframe::App for AppState {
                         }
                     });
                 });
+
         }
     }
 

@@ -16,6 +16,9 @@ mod comp_time {
         pub fn elapsed_saturating(&self, since: &Time) -> Duration {
             self.now().0.duration_since(since.0).unwrap_or(Duration::ZERO)
         }
+        pub fn saturating_duration_till(&self, since: &Time) -> Duration {
+            since.0.duration_since(self.now().0).unwrap_or(Duration::ZERO)
+        }
     }
 
     impl Time {
@@ -34,8 +37,7 @@ mod comp_time {
 #[cfg(target_arch = "wasm32")]
 mod comp_time {
     use std::ops::Add;
-    use std::time::{Duration, SystemTime};
-    use web_sys::Performance;
+    use std::time::{Duration};
 
     pub struct Time(f64);
     pub struct Timer(web_sys::Performance);
@@ -54,6 +56,11 @@ mod comp_time {
         pub fn elapsed_saturating(&self, time: &Time) -> Duration {
             let now: f64 = self.now().0;
             let diff = now - time.0;
+            Duration::try_from_secs_f64(diff / 1000.0).unwrap_or(Duration::ZERO)
+        }
+        pub fn saturating_duration_till(&self, since: &Time) -> Duration {
+            let now: f64 = self.now().0;
+            let diff = now - since.0;
             Duration::try_from_secs_f64(diff / 1000.0).unwrap_or(Duration::ZERO)
         }
     }

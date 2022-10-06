@@ -1,10 +1,8 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display};
 use ant_sim::ant_sim::AntSimulator;
-use async_std::channel::{Sender as ChannelSender, Receiver as ChannelReceiver};
 use crate::AntSimFrame;
-use crate::service_handle::{SenderDiedError, ServiceHandle};
+use crate::service_handle::{ServiceHandle};
 
-use async_trait::async_trait;
 use crate::channel_actor::{ChannelActor, WorkerError};
 
 pub struct SimComputeMessage(pub Box<AntSimulator<AntSimFrame>>, pub Box<AntSimulator<AntSimFrame>>);

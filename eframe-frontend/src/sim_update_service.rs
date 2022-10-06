@@ -1,11 +1,8 @@
 use std::fmt::{Display, Formatter};
-use std::ops::Sub;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration};
 use ant_sim::ant_sim::AntSimulator;
-use crate::{AntSimFrame, service_err};
-use async_std::channel::{Sender as ChannelSender, Receiver as ChannelReceiver, RecvError};
-use async_std::future::{timeout, TimeoutError};
-use async_trait::async_trait;
+use crate::{AntSimFrame};
+use async_std::future::{timeout};
 use egui::{Color32, ColorImage};
 use ant_sim::ant_sim_frame::AntSim;
 use crate::channel_actor::*;
@@ -78,7 +75,7 @@ impl SimUpdateService {
                     let use_delay = if paused {
                         Duration::MAX
                     } else {
-                        timer.elapsed_saturating(&next_scheduled_update)
+                        timer.saturating_duration_till(&next_scheduled_update)
                     };
                     let mut received = timeout(use_delay, rec.recv()).await;
                     if let Ok(message) = received {
@@ -146,7 +143,7 @@ impl SimUpdateService {
         }
     }
 
-    fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> egui::ImageData {
+    pub fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> egui::ImageData {
         let mut pixels = vec![Color32::BLACK; sim.sim.cell_count()];
         rgba_adapter::draw_to_buf(sim, ImageRgba(&mut pixels));
         let dim = [sim.sim.width(), sim.sim.height()];

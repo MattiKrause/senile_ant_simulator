@@ -1,12 +1,14 @@
-use std::any::Any;
-use std::ffi::OsStr;
-use std::fmt::{Display, Formatter, Pointer};
-use std::future::Future;
-use std::io::ErrorKind;
+
+
+use std::fmt::{Display};
 use std::path::{PathBuf as SyncPathBuf};
-use std::pin::Pin;
 use async_std::path::PathBuf as AsyncPathBuf;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    pin::Pin,
+    future::Future
+};
 
 use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, SendError};
 use std::thread::JoinHandle;
@@ -67,7 +69,7 @@ impl LoadFileService {
                     send_to = send_to.send(send_message).await
                         .map_err(|(_, err)| WorkerError::SenderFailed(err))?;
                 }
-                #[cfg(not(wasm32))]
+                #[cfg(not(target_arch = "wasm32"))]
                 LoadFileMessages::LoadFileMessage(fut) => {
                     let dialog = Self::load_file_dialog(fut).await;
                     let (buf, sim_res) = if let Some(res) = dialog {
@@ -81,7 +83,7 @@ impl LoadFileService {
                     send_to = send_to.send(LoadFileResponse::UpdatePreferredPath(buf)).await
                         .map_err(|(_, err)| WorkerError::SenderFailed(err))?;
                 }
-                #[cfg(not(wasm32))]
+                #[cfg(not(target_arch = "wasm32"))]
                 LoadFileMessages::SaveStateMessage(fut, sim) => {
                     let result = Self::save_file_dialog(fut, sim.as_ref()).await;
                     let (file, err) = if let Some(result) = result {
@@ -134,6 +136,7 @@ impl LoadFileService {
         Some((file.path().to_path_buf(), Self::handle_dropped_file(DroppedFileMessage { path_buf: file.path().to_path_buf() }).await))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     async fn save_file_dialog(file: Pin<Box<dyn 'static + Send + Future<Output = Option<rfd::FileHandle>>>>, sim: &AntSimulator<AntSimFrame>) -> Option<(SyncPathBuf, Result<(), String>)> {
         let file = file.await?;
         let file_path = AsyncPathBuf::from(file.path().to_path_buf());
@@ -144,6 +147,7 @@ impl LoadFileService {
         let result = Self::save_to_file(file, sim).await;
         Some((file_path.into(), result))
     }
+    #[cfg(not(target_arch = "wasm32"))]
     async fn save_to_file(file: impl Future<Output = std::io::Result<async_std::fs::File>>, sim: &AntSimulator<AntSimFrame>) -> Result<(), String> {
         use async_std::io::WriteExt;
         let mut repr = Vec::new();

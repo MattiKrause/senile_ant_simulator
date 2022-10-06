@@ -95,14 +95,14 @@ impl<E, FC: 'static + Send, F: Future<Output=FC>> ChannelActorFUNResult for Serv
 
 
 impl<M: 'static + Send> ChannelActor<M> {
-    pub fn new_actor<S, SM, FU, FU_ERR, FUN, FUN_ERR>(name: &'static str, send_to: S, f: FUN) -> FUN_ERR::Res<M>
+    pub fn new_actor<S, SM, FU, FuErr, FUN, FunErr>(name: &'static str, send_to: S, f: FUN) -> FunErr::Res<M>
         where S: 'static + Send + ServiceHandle<SM>,
               SM: 'static + Send,
               S::Err: 'static + Send + Display,
-              FU: 'static + ConditionalSend + Future<Output=Result<(), FU_ERR>>,
-              FU_ERR: 'static + Display,
-              FUN: 'static + FnOnce(ChannelReceiver<M>, S, ChannelSender<M>) -> FUN_ERR,
-              FUN_ERR: ChannelActorFUNResult<Fut = FU>
+              FU: 'static + ConditionalSend + Future<Output=Result<(), FuErr>>,
+              FuErr: 'static + Display,
+              FUN: 'static + FnOnce(ChannelReceiver<M>, S, ChannelSender<M>) -> FunErr,
+              FunErr: ChannelActorFUNResult<Fut = FU>
     {
         let task_q = async_std::channel::unbounded();
         let task_send = task_q.0.clone();
@@ -124,7 +124,7 @@ impl<M: 'static + Send> ChannelActor<M> {
         let result = Self {
             task_q: task_q.0,
         };
-        FUN_ERR::res_from(result)
+        FunErr::res_from(result)
     }
 }
 

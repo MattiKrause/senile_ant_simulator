@@ -1,12 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::future::Future;
 use std::marker::PhantomData;
-use std::ops::ControlFlow;
-use std::thread::JoinHandle;
-use std::time::Duration;
 use async_std::channel::TrySendError;
 use async_trait::async_trait;
-use async_std::channel::{Sender as ChannelSender, Receiver as ChannelReceiver};
 
 #[async_trait]
 pub trait ServiceHandle<T>: Sized {

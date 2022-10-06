@@ -1,5 +1,6 @@
 #![feature(generic_associated_types)]
 #![warn(clippy::all, rust_2018_idioms)]
+#![allow(stable_features)]
 #![feature(duration_checked_float)]
 
 mod app;

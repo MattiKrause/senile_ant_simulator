@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::hash::Hash;
 pub use non_max::*;
 
@@ -5,6 +6,17 @@ pub use non_max::*;
 pub struct AntPosition {
     pub x: usize,
     pub y: usize,
+}
+
+impl AntPosition {
+    #[inline]
+    #[must_use]
+    pub fn clamp_to(self, pos: AntPosition) -> AntPosition {
+        Self {
+            x: min(self.x, pos.x),
+            y: min(self.y, pos.y)
+        }
+    }
 }
 
 mod non_max {
@@ -49,7 +61,7 @@ mod non_max {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AntSimCell {
     Path {
         pheromone_food: NonMaxU16,
@@ -67,12 +79,26 @@ pub trait AntSim {
     type Cells<'a>: Iterator<Item=(AntSimCell, Self::Position)> where Self: 'a;
 
     fn check_compatible(&self, other: &Self) -> bool;
+    #[inline]
+    #[must_use]
     fn decode(&self, position: &Self::Position) -> AntPosition;
+    #[inline]
+    #[must_use]
     fn encode(&self, position: AntPosition) -> Option<Self::Position>;
+    #[inline]
+    #[must_use]
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell>;
+    #[inline]
     fn set_cell(&mut self, position: &Self::Position, cell: AntSimCell);
+    #[inline]
     fn cells(&self) -> Self::Cells<'_>;
+    #[inline]
+    #[must_use]
     fn width(&self) -> usize;
+    #[inline]
+    #[must_use]
     fn height(&self) -> usize;
+    #[inline]
+    #[must_use]
     fn cell_count(&self) -> usize { self.width() * self.height() }
 }

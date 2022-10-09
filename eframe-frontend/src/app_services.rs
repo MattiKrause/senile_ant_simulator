@@ -73,7 +73,13 @@ impl Debug for AppEvents {
             AppEvents::DelayRequest(_) => write!(f, "AppEvent: DelayRequest"),
             AppEvents::RequestLoadGame => write!(f, "AppEvent: RequestLoadGame"),
             AppEvents::RequestSaveGame => write!(f, "AppEvent: RequestSaveGame"),
-            AppEvents::RequestLaunch => write!(f, "AppEvent: RequestLaunch")
+            AppEvents::RequestLaunch => write!(f, "AppEvent: RequestLaunch"),
+            AppEvents::RequestSetBoardWidth => write!(f, "AppEvent: SetBoardWidth"),
+            AppEvents::RequestSetBoardHeight => write!(f, "AppEvent: SetBoardHeight"),
+            AppEvents::RequestSetSeed => write!(f, "AppEvent: RequestSetSeed"),
+            AppEvents::PaintStroke { .. } => write!(f, "AppEvent: PaintStroke"),
+            AppEvents::SetBrush(_) => write!(f, "AppEvents: SetBrush"),
+            AppEvents::SetCell(_) => write!(f, "AppEvents: SetBrush")
         }
     }
 }
@@ -145,12 +151,12 @@ pub fn load_file_service(mailbox: ChannelSender<AppEvents>, ctx: egui::Context) 
     Some(service)
 }
 
-pub fn update_service(mailbox: ChannelSender<AppEvents>, delay: Duration, sim: AntSimulator<AntSimFrame>, ctx: egui::Context) -> Option<SimUpdateService> {
+pub fn update_service(mailbox: ChannelSender<AppEvents>, delay: Duration, sim: AntSimulator<AntSimFrame>, initial_pause: bool, ctx: egui::Context) -> Option<SimUpdateService> {
     let trans_service = AppFacet {
         backing: mailbox,
         ctx
     };
-    let service = SimUpdateService::new(trans_service, (delay, Box::new(sim)));
+    let service = SimUpdateService::new(trans_service, initial_pause, (delay, Box::new(sim)));
     match service {
         Ok(s) => Some(s),
         Err(err) => {

@@ -5,10 +5,10 @@ use crate::ant_sim_frame::{AntSim, AntSimCell};
 
 #[derive(Debug)]
 pub struct Ant<A: AntSim + ?Sized> {
-    position: A::Position,
-    last_position: A::Position,
-    state: AntState,
-    explore_weight: f64,
+    pub position: A::Position,
+    pub last_position: A::Position,
+    pub state: AntState,
+    pub explore_weight: f64,
 }
 
 #[derive(Copy, Clone, Debug)]

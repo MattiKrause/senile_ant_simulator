@@ -4,7 +4,7 @@ use ant_sim::ant_sim::AntSimulator;
 use crate::{AntSimFrame};
 use async_std::future::{timeout};
 use egui::{Color32, ColorImage};
-use ant_sim::ant_sim_frame::AntSim;
+use ant_sim::ant_sim_frame::{AntSim, AntSimCell};
 use crate::channel_actor::*;
 use crate::service_handle::*;
 use crate::sim_computation_service::{SimComputationService, SimComputeMessage};
@@ -48,9 +48,8 @@ impl<SE: 'static + Send + Display> Display for SimUpdateError<SE> {
     }
 }
 
-
 impl SimUpdateService {
-    pub fn new<S>(send_to: S, c: (Duration, Box<AntSimulator<AntSimFrame>>)) -> Result<Self, String>
+    pub fn new<S>(send_to: S, start_paused: bool, c: (Duration, Box<AntSimulator<AntSimFrame>>)) -> Result<Self, String>
         where S: 'static + Send + ServiceHandle<SimUpdateServiceMessage>,
               S::Err: 'static + Send + Display,
     {
@@ -64,7 +63,7 @@ impl SimUpdateService {
 
             let task = async move {
                 let (mut delay, sim) = c;
-                let mut paused = false;
+                let mut paused = start_paused;
                 let mut ignore_updates = 0u32;
                 let mut next_scheduled_update = timer.now();
                 let mut save_requested = false;

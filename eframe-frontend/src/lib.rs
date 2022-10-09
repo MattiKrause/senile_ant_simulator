@@ -2,6 +2,7 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![allow(stable_features)]
 #![feature(duration_checked_float)]
+#![feature(let_else)]
 
 mod app;
 mod load_file_service;
@@ -11,6 +12,7 @@ mod sim_computation_service;
 mod sim_update_service;
 mod time_polyfill;
 mod channel_actor;
+mod app_event_handling;
 
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 pub use app::AppState;

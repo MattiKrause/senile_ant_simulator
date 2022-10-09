@@ -1,5 +1,8 @@
+use std::cmp::min;
 use std::mem::replace;
+use std::num::ParseIntError;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
 use eframe::emath::Align;
@@ -7,9 +10,10 @@ use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
 use egui::*;
 use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
-use ant_sim::ant_sim_frame::AntSim;
+use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
 use rgba_adapter::SetRgb;
-use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
+use ant_sim::ant_sim_frame_impl::{AntSimVecImpl, NewAntSimVecImplError};
+use crate::app_event_handling::{Brush, handle_events};
 use crate::app_services::{load_file_service, Services, update_service};
 use crate::load_file_service::{DroppedFileMessage, LoadFileMessages};
 use crate::service_handle::{ServiceHandle};
@@ -28,35 +32,73 @@ pub enum AppEvents {
     RequestLoadGame,
     RequestSaveGame,
     RequestLaunch,
+    RequestSetBoardWidth,
+    RequestSetBoardHeight,
+    RequestSetSeed,
+    PaintStroke {
+        from: [f32; 2],
+        to: [f32; 2],
+    },
+    SetBrush(BrushType),
+    SetCell(AntSimCell),
+}
+
+pub enum BrushType {
+    Circle(usize)
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 pub struct AppState {
-    game_image: TextureHandle,
-    mailbox: ChannelReceiver<AppEvents>,
-    error_stack: Vec<String>,
-    save_requested: bool,
-    preferred_path: Option<PathBuf>,
-    game_state: GameState,
-    input_locked: bool,
-    game_speed: GameSpeed,
-
+    pub game_image: TextureHandle,
+    pub mailbox: ChannelReceiver<AppEvents>,
+    pub error_stack: Vec<String>,
+    pub save_requested: bool,
+    pub preferred_path: Option<PathBuf>,
+    pub game_state: GameState,
+    pub input_locked: bool,
+    pub game_speed: GameSpeed,
     // Example stuff:
-    label: String,
+    pub label: String,
 
     // this how you opt-out of serialization of a member
-    value: f32,
-    services: Services,
+    pub value: f32,
+    pub services: Services,
 }
 
 pub enum GameState {
     Launched,
-    Edit(Box<AntSimulator<AntSimFrame>>),
+    Edit(Box<GameStateEdit>),
+}
+
+pub struct GameStateEdit {
+    pub sim: Box<AntSimulator<AntSimFrame>>,
+    pub show_side_panel: bool,
+    pub brush_form: Brush,
+    pub brush_cell: AntSimCell,
+    pub width_text_buffer: String,
+    pub height_text_buffer: String,
+    pub seed_text_buffer: String,
+    pub brush_circle_radius: usize,
+}
+
+impl GameStateEdit {
+    pub fn new(sim: Box<AntSimulator<AntSimFrame>>) -> Self {
+        Self {
+            show_side_panel: false,
+            brush_form: Brush::new_circle(1),
+            brush_cell: AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) },
+            width_text_buffer: sim.sim.width().to_string(),
+            height_text_buffer: sim.sim.height().to_string(),
+            seed_text_buffer: sim.seed.to_string(),
+            sim,
+            brush_circle_radius: 1,
+        }
+    }
 }
 
 pub struct GameSpeed {
-    paused: bool,
-    delay: Duration,
+    pub paused: bool,
+    pub delay: Duration,
 }
 
 impl AppState {
@@ -75,12 +117,13 @@ impl AppState {
     }
 
     fn create_new(cc: &eframe::CreationContext<'_>) -> Self {
-        let colored_image = ColorImage::new([1, 1], Color32::from_rgba_unmultiplied(0, 0, 0, 0xFF));
+        let ant_sim = default_ant_sim();
+        let colored_image = SimUpdateService::sim_to_image(&ant_sim);
         let texture = cc.egui_ctx.load_texture("ant_sim background", colored_image, TextureFilter::Nearest);
         let mailbox = async_std::channel::unbounded();
         let services = Services {
             load_file: load_file_service(mailbox.0.clone(), cc.egui_ctx.clone()),
-            update: update_service(mailbox.0.clone(), Duration::from_millis(200), default_ant_sim(), cc.egui_ctx.clone()),
+            update: update_service(mailbox.0.clone(), Duration::from_millis(200), default_ant_sim(), true, cc.egui_ctx.clone()),
             mailbox_in: mailbox.0,
         };
         AppState {
@@ -89,7 +132,7 @@ impl AppState {
             error_stack: Vec::new(),
             save_requested: false,
             preferred_path: None,
-            game_state: GameState::Edit(Box::new(default_ant_sim())),
+            game_state: GameState::Edit(Box::new(GameStateEdit::new(Box::new(ant_sim)))),
             input_locked: false,
             game_speed: GameSpeed { paused: false, delay: Duration::from_millis(200) },
             label: "lbl".to_string(),
@@ -97,8 +140,8 @@ impl AppState {
             services,
         }
     }
-    
-    fn send_me(&self, event: AppEvents) {
+
+    pub fn send_me(&self, event: AppEvents) {
         let _ = ChannelSender::try_send(&self.services.mailbox_in, event);
     }
 
@@ -174,6 +217,23 @@ impl AppState {
         if input.key_pressed(Key::P) && matches!(self.game_state, GameState::Launched) {
             self.send_me(AppEvents::RequestPause);
         }
+        input.events.iter()
+            .filter_map(|event| if let Event::Key { key, pressed, modifiers } = event {
+                Some(key)
+            } else {
+                None
+            })
+            .filter_map(|key| match key {
+                Key::C => Some(AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) }),
+                Key::B => Some(AntSimCell::Blocker),
+                Key::H => Some(AntSimCell::Home),
+                Key::F => Some(AntSimCell::Food {
+                    amount: u16::MAX
+                }),
+                _ => None,
+            })
+            .take(1)
+            .for_each(|key| self.send_me(AppEvents::SetCell(key)))
     }
 
     fn map_key_to_frame_delay(key: &egui::Key) -> Option<Duration> {
@@ -193,184 +253,75 @@ impl AppState {
         Some(Duration::from_millis(delay_millis))
     }
 
-    fn handle_events(&mut self, ctx: &egui::Context) {
-        macro_rules! resume_if_present {
-            ($service: expr) => {
-                if let Some(service) = replace(&mut $service, None) {
-                    service
-                } else {
-                    continue;
-                }
-            };
-        }
-        macro_rules! resume_if_condition {
-            ($cond: expr) => {
-                if !$cond {
-                    continue;
-                }
-            };
-        }
-        let mut event_query = self.mailbox.try_recv();
-        while let Ok(event) = event_query {
-            event_query = self.mailbox.try_recv();
-            match event {
-                AppEvents::ReplaceSim(ant_sim) => {
-                    log::debug!(target: "App", "Received new simulation instance");
-                    match ant_sim {
-                        Ok(res) => {
-                            self.game_image.set(SimUpdateService::sim_to_image(res.as_ref()), TextureFilter::Nearest);
-                            self.game_state = GameState::Edit(res);
-                            if let Some(update) = replace(&mut self.services.update, None) {
-                                if let Ok(service) = update.try_send(SimUpdaterMessage::Pause(true)) {
-                                    self.services.update = Some(service.0);
-                                } else {
-                                    panic!("services down!")
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            self.error_stack.push(format!("Failed to load save: {err}"));
-                        }
-                    }
-                }
-                AppEvents::NewStateImage(image) => {
-                    self.game_image.set(image, TextureFilter::Nearest);
-                }
-                AppEvents::SetPreferredSearchPath(path) => {
-                    self.preferred_path = Some(path);
-                }
-                AppEvents::CurrentVersion(sim) => {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if self.save_requested {
-
-                        self.save_requested = false;
-                        let file_service = resume_if_present!(self.services.load_file);
-                        let mut prompt_builder = rfd::AsyncFileDialog::new()
-                            .set_file_name("ant_sim_save.txt")
-                            .set_title("save simulation state");
-                        if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
-                            prompt_builder = prompt_builder.set_directory(path);
-                        }
-                        let prompt = prompt_builder.save_file();
-                        match file_service.try_send(LoadFileMessages::SaveStateMessage(Box::pin(prompt), sim)) {
-                            Ok((service, _)) => {
-                                self.services.load_file = Some(service);
-                            }
-                            Err(_) => {
-                                log::warn!("File services down!");
-                            }
-                        };
-                    }
-                }
-                AppEvents::Error(err) => {
-                    self.error_stack.push(err);
-                }
-                AppEvents::RequestPause => {
-                    resume_if_condition!(matches!(self.game_state, GameState::Launched));
-                    let update_service = resume_if_present!(self.services.update);
-                    self.game_speed.paused = !self.game_speed.paused;
-                    log::debug!(target: "App", "pause state: {}", self.game_speed.paused);
-                    match update_service.try_send(SimUpdaterMessage::Pause(self.game_speed.paused)) {
-                        Ok((service, _)) => {
-                            self.services.update = Some(service);
-                        }
-                        Err(_) => {}
-                    }
-                }
-                AppEvents::DelayRequest(new_delay) => {
-                    self.game_speed.delay = new_delay;
-                    let update_service = resume_if_present!(self.services.update);
-                    let send_result = update_service.try_send(SimUpdaterMessage::SetDelay(new_delay));
-                    match send_result {
-                        Ok((actor, _)) => {
-                            self.services.update = Some(actor);
-                        }
-                        Err(_) => {}
-                    }
-                }
-                AppEvents::RequestLoadGame => {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if let Some(service) = replace(&mut self.services.load_file, None) {
-                        let mut prompt_builder = rfd::AsyncFileDialog::new().set_title("Load save state");
-                        if let Some(path) = self.preferred_path.as_ref().and_then(|path| path.parent()) {
-                            prompt_builder = prompt_builder.set_directory(path);
-                        }
-                        let prompt = prompt_builder.pick_file();
-                        match service.try_send(LoadFileMessages::LoadFileMessage(Box::pin(prompt))) {
-                            Ok(ready) => {
-                                self.services.load_file = Some(ready.0);
-                            }
-                            Err(err) => {
-                                log::warn!(target:"App", "LoadFileService failed")
-                            }
-                        }
-                    }
-                }
-                AppEvents::RequestSaveGame => {
-                    self.save_requested = true;
-                    match &self.game_state {
-                        GameState::Launched => {
-                            let update_service = resume_if_present!(self.services.update);
-                            match update_service.try_send(SimUpdaterMessage::RequestCurrentState) {
-                                Ok((c, _)) => {
-                                    self.services.update = Some(c);
-                                }
-                                Err(_) => {
-                                    panic!("update service down");
-                                }
-                            }
-                        }
-                        GameState::Edit(edit) => {
-                            self.send_me(AppEvents::CurrentVersion(edit.clone()));
-                        }
-                    }
-                }
-                AppEvents::RequestLaunch => {
-                    let edit_state = if matches!(self.game_state, GameState::Edit(_)) {
-                        match replace(&mut self.game_state,  GameState::Launched) {
-                            GameState::Edit(e) => e,
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        continue;
-                    };
-                    let update_service= replace(&mut self.services.update, None)
-                        .and_then(|service| service.try_send(SimUpdaterMessage::NewSim(edit_state)).ok())
-                        .and_then(|(service, _)| service.try_send(SimUpdaterMessage::Pause(false)).ok())
-                        .expect("update service down")
-                        .0;
-                    self.services.update = Some(update_service);
-                }
-            }
-        }
-        if let Err(TryRecvError::Closed) = event_query {
-            panic!("services down!");
-        }
-    }
-
     fn edit_side_panel(&mut self, ctx: &egui::Context) {
+        macro_rules! send_me {
+            ($message: expr) => {
+                let _ = ChannelSender::try_send(&self.services.mailbox_in, $message);
+            };
+        }
         let e = if let GameState::Edit(ref mut e) = self.game_state {
             e
         } else {
             return;
         };
+        let GameStateEdit { sim, show_side_panel, brush_form: brush, brush_cell, width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius } = e.as_mut();
+        let input_locked = &mut self.input_locked;
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
+            ui.heading("Edit game values");
             ui.horizontal(|ui| {
+                ui.label("width: ");
+                let width = ui.text_edit_singleline(width_text_buffer);
+                if width.gained_focus() {
+                    *input_locked = true;
+                }
+                if width.lost_focus() {
+                    *input_locked = false;
+                    send_me!(AppEvents::RequestSetBoardWidth);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("height: ");
+                let height = ui.text_edit_singleline(height_text_buffer);
+                if height.gained_focus() {
+                    *input_locked = true;
+                }
+                if height.lost_focus() {
+                    *input_locked = false;
+                    ;
+                    send_me!(AppEvents::RequestSetBoardHeight);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("seed: ");
+                let seed = ui.text_edit_singleline(seed_text_buffer);
+                if seed.gained_focus() {
+                    *input_locked = true;
+                }
+                if seed.lost_focus() {
+                    *input_locked = false;
+                    send_me!(AppEvents::RequestSetSeed);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("brush radius: ");
+                let seed = egui::Slider::new(brush_circle_radius, 1..=100).ui(ui);
+                if seed.changed() {
+                    send_me!(AppEvents::SetBrush(BrushType::Circle(*brush_circle_radius)));
+                }
+            });
+
+            /*ui.horizontal(|ui| {
                 ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
+                ui.text_edit_singleline(&mut self.label).changed();
             });
             let mut value = &mut self.value;
             ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
             if ui.button("Increment").clicked() {
                 *value += 1.0;
-            }
+            }*/
             if ui.button("Start").clicked() {
-                self.send_me(AppEvents::RequestLaunch)
+                send_me!(AppEvents::RequestLaunch);
             }
-
-
         });
     }
 }
@@ -380,7 +331,7 @@ impl eframe::App for AppState {
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_input(ctx);
-        self.handle_events(ctx);
+        handle_events(self, ctx);
         // Examples of how to create different panels and windows.
         // Pick whichever suits you.
         // Tip: a good default choice is to just keep the `CentralPanel`.
@@ -417,15 +368,33 @@ impl eframe::App for AppState {
             });
             // The central panel the region left after adding TopPanel's and SidePanel's
             ui.with_layout(egui::Layout::top_down(egui::Align::Center).with_cross_align(egui::Align::Center), |ui| {
-                egui::Image::new(self.game_image.id(), [300.0, 300.0]).ui(ui);
+                let max = ui.max_rect();
+                let max_ratio = max.width() / max.height();
+                let image_size = self.game_image.size_vec2();
+                let image_ratio = image_size.x / image_size.y;
+                let size = if image_ratio < max_ratio {
+                    let height = max.height();
+                    let width = height * image_ratio;
+                    [width, height]
+                } else {
+                    let width = max.width();
+                    let height = width / image_ratio;
+                    [width, height]
+                };
+                let mut image = egui::Image::new(self.game_image.id(), size).ui(ui).interact(Sense::click_and_drag());
+                if image.dragged() {
+                    let current = image.interact_pointer_pos().unwrap() - image.rect.min;
+                    let starting = current - image.drag_delta();
+                    let x_ratio = image_size.x / size[0];
+                    let y_ratio = image_size.y / size[1];
+                    let on_image_starting = [starting.x * x_ratio, starting.y * y_ratio];
+                    let on_image_current = [current.x * x_ratio, current.y * y_ratio];
+                    if ((0.0..image_size.x).contains(&on_image_starting[0]) && (0.0..image_size.y).contains(&on_image_starting[1]))
+                        || (on_image_current[0] < image_size.x && on_image_current[1] < image_size.y) {
+                        self.send_me(AppEvents::PaintStroke { from: on_image_starting, to: on_image_current })
+                    }
+                }
             });
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
-            egui::warn_if_debug_build(ui);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
@@ -437,6 +406,7 @@ impl eframe::App for AppState {
                         "https://github.com/emilk/egui/tree/master/crates/eframe",
                     );
                     ui.label(".");
+                    egui::warn_if_debug_build(ui);
                 });
             });
         });
@@ -457,7 +427,6 @@ impl eframe::App for AppState {
                         }
                     });
                 });
-
         }
     }
 

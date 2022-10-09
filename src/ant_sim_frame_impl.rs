@@ -25,7 +25,7 @@ impl AntSimCellImpl {
             }
         } else if self.p1 == u16::MAX {
             debug_assert!(self.p2 < 2);
-            if self.p1 == 0 {
+            if self.p2 == 0 {
                 AntSimCell::Blocker
             } else {
                 AntSimCell::Home
@@ -73,6 +73,7 @@ impl AntSimVecImpl {
     /// Creates a new [AntSimVecImpl] with the specified dimensions
     /// # Errors
     /// Returns an error if either the height or the width is zero, if the dimensions exceed [isize::MAX] or if the allocator failed
+    #[inline]
     pub fn new(width: usize, height: usize) -> Result<Self, NewAntSimVecImplError> {
         if width == 0 || height == 0 {
             return Err(NewAntSimVecImplError::DimensionZero)
@@ -111,6 +112,7 @@ impl AntSim for AntSimVecImpl {
         }
     }
     #[inline]
+    #[must_use]
     fn encode(&self, position: AntPosition) -> Option<AntPositionImpl> {
         let AntPosition { x, y } = position;
         if x < self.width && y < self.height {
@@ -122,6 +124,7 @@ impl AntSim for AntSimVecImpl {
     }
 
     #[inline]
+    #[must_use]
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell> {
         self.contains.get(position.0).map(AntSimCellImpl::to_cell)
     }

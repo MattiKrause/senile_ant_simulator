@@ -13,7 +13,7 @@ use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 use ant_sim_save::save_subsystem::{ReadSaveFileError, SaveFileClass};
 use recorder::gif_recorder::{GIFRecorder, NewGifRecorderError};
-use rgba_adapter::{RgbaBoxBuf};
+use rgba_adapter::{ColorBuffer, RgbaBoxBuf, SetRgb};
 use crate::write_service::RgbaWriteService;
 
 #[derive(Parser, Debug)]

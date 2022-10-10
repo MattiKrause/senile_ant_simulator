@@ -3,7 +3,8 @@ use std::sync::mpsc::{Receiver, sync_channel, SyncSender};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use recorder::{BufConsumer, ColorBuffer};
+use recorder::{BufConsumer};
+use rgba_adapter::ColorBuffer;
 
 enum BufWriterError<Err> {
     ChannelDeath,

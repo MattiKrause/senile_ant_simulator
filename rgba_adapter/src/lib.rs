@@ -1,4 +1,5 @@
 #![feature(generic_associated_types)]
+#![allow(stable_features)]
 
 mod comp_image;
 pub use comp_image::draw_to_buf;

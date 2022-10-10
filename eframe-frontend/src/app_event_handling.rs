@@ -1,6 +1,4 @@
-use std::cmp::{max, min};
 use std::mem::replace;
-use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 use egui::{TextureFilter, TextureHandle};
 use ant_sim::ant_sim::AntSimulator;
@@ -9,12 +7,11 @@ use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::NewAntSimVecImplError;
 use crate::{AntSimFrame, AppState};
 use crate::app::{AppEvents, BrushType, GameState, GameStateEdit};
-use crate::channel_actor::ChannelActor;
 use crate::load_file_service::LoadFileMessages;
-use crate::service_handle::{SenderDiedError, ServiceHandle};
+use crate::service_handle::{ServiceHandle};
 use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
 
-pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
+pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
     macro_rules! resume_if_present {
             ($service: expr) => {
                 if let Some(service) = replace(&mut $service, None) {
@@ -121,7 +118,7 @@ pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
                         Ok(ready) => {
                             state.services.load_file = Some(ready.0);
                         }
-                        Err(err) => {
+                        Err(_) => {
                             log::warn!(target:"App", "LoadFileService failed")
                         }
                     }
@@ -238,7 +235,7 @@ pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
                     Ok(seed) => {
                         edit.sim.seed = seed;
                     }
-                    Err(err) => {
+                    Err(_) => {
                         state.error_stack.push(String::from("The seed must consist of 1-19 digits"));
                         edit.seed_text_buffer = edit.sim.seed.to_string();
                         continue;
@@ -323,7 +320,7 @@ fn paint_stroke(from: [f32; 2], to: [f32; 2], cell: AntSimCell, brush: &Brush, o
             let Some(pos) = on.encode(pos) else { continue };
             on.set_cell(&pos, cell.clone());
         }
-        let mut break_cond = current.x == to[0];
+        let break_cond = current.x == to[0];
         let e2 = error * 2;
         let e2_larger_dy = e2 >= dy;
         error = error.wrapping_add(dy * (e2_larger_dy as isize));

@@ -79,26 +79,19 @@ pub trait AntSim {
     type Cells<'a>: Iterator<Item=(AntSimCell, Self::Position)> where Self: 'a;
 
     fn check_compatible(&self, other: &Self) -> bool;
-    #[inline]
     #[must_use]
     fn decode(&self, position: &Self::Position) -> AntPosition;
-    #[inline]
     #[must_use]
     fn encode(&self, position: AntPosition) -> Option<Self::Position>;
-    #[inline]
     #[must_use]
     fn cell(&self, position: &Self::Position) -> Option<AntSimCell>;
-    #[inline]
     fn set_cell(&mut self, position: &Self::Position, cell: AntSimCell);
-    #[inline]
+    #[must_use]
     fn cells(&self) -> Self::Cells<'_>;
-    #[inline]
     #[must_use]
     fn width(&self) -> usize;
-    #[inline]
     #[must_use]
     fn height(&self) -> usize;
-    #[inline]
     #[must_use]
     fn cell_count(&self) -> usize { self.width() * self.height() }
 }

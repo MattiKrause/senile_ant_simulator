@@ -1,23 +1,18 @@
-use std::cmp::min;
 use std::mem::replace;
-use std::num::ParseIntError;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
-use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, Sender, TryRecvError};
+use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender};
 use eframe::emath::Align;
-use eframe::epaint::color::hsv_from_rgb;
 use eframe::epaint::textures::TextureFilter;
 use egui::*;
 use ant_sim::ant_sim::{AntSimConfig, AntSimulator, AntVisualRangeBuffer};
-use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
-use rgba_adapter::SetRgb;
-use ant_sim::ant_sim_frame_impl::{AntSimVecImpl, NewAntSimVecImplError};
+use ant_sim::ant_sim_frame::{AntSim, AntSimCell, NonMaxU16};
+use ant_sim::ant_sim_frame_impl::{AntSimVecImpl};
 use crate::app_event_handling::{Brush, handle_events};
 use crate::app_services::{load_file_service, Services, update_service};
 use crate::load_file_service::{DroppedFileMessage, LoadFileMessages};
 use crate::service_handle::{ServiceHandle};
-use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
+use crate::sim_update_service::{SimUpdateService};
 
 type AntSimFrame = AntSimVecImpl;
 
@@ -175,9 +170,7 @@ impl AppState {
                 Ok(res) => {
                     self.services.load_file = Some(res.0);
                 }
-                Err(err) => {
-                    let err = format!("sender err");
-                    log::error!(target: "LoadFileService", "{err}");
+                Err(_) => {
                 }
             }
         } else {
@@ -219,7 +212,7 @@ impl AppState {
             self.send_me(AppEvents::RequestPause);
         }
         input.events.iter()
-            .filter_map(|event| if let Event::Key { key, pressed, modifiers } = event {
+            .filter_map(|event| if let Event::Key { key, ..} = event {
                 Some(key)
             } else {
                 None
@@ -269,7 +262,7 @@ impl AppState {
         } else {
             return;
         };
-        let GameStateEdit { sim, show_side_panel, brush_form: brush, brush_cell, width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius } = e.as_mut();
+        let GameStateEdit { width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius, .. } = e.as_mut();
         let input_locked = &mut self.input_locked;
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("Edit game values");
@@ -292,7 +285,6 @@ impl AppState {
                 }
                 if height.lost_focus() {
                     *input_locked = false;
-                    ;
                     send_me!(AppEvents::RequestSetBoardHeight);
                 }
             });
@@ -386,7 +378,7 @@ impl eframe::App for AppState {
                     let height = width / image_ratio;
                     [width, height]
                 };
-                let mut image = egui::Image::new(self.game_image.id(), size).ui(ui).interact(Sense::click_and_drag());
+                let image = Image::new(self.game_image.id(), size).ui(ui).interact(Sense::click_and_drag());
                 if image.dragged() {
                     let current = image.interact_pointer_pos().unwrap() - image.rect.min;
                     let starting = current - image.drag_delta();
@@ -416,7 +408,7 @@ impl eframe::App for AppState {
             });
         });
 
-        let mut error_stack = &mut self.error_stack;
+        let error_stack = &mut self.error_stack;
         if let Some(err) = error_stack.last().cloned() {
             egui::Window::new("Error")
                 .default_size(ctx.used_size() * egui::Vec2::new(0.5, 0.5))
@@ -436,30 +428,9 @@ impl eframe::App for AppState {
     }
 
     /// Called by the frame work to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+    fn save(&mut self, _storage: &mut dyn eframe::Storage) {
         //eframe::set_value(storage, eframe::APP_KEY, self);
     }
-}
-
-fn sim_to_image<A: AntSim>(sim: &AntSimulator<A>) -> ImageData {
-    struct ImageRgba<'a>(&'a mut [Color32]);
-    impl<'a> SetRgb for ImageRgba<'a> {
-        #[inline(always)]
-        fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        #[inline(always)]
-        fn set_rgb(&mut self, index: usize, pix: [u8; 3]) {
-            self.0[index] = Color32::from_rgb(pix[0], pix[1], pix[2]);
-        }
-    }
-    let mut image_buf = vec![Color32::default(); sim.sim.width() * sim.sim.height()];
-    rgba_adapter::draw_to_buf(sim, ImageRgba(&mut image_buf));
-    ImageData::Color(ColorImage {
-        size: [sim.sim.width(), sim.sim.height()],
-        pixels: image_buf,
-    })
 }
 
 fn default_ant_sim() -> AntSimulator<AntSimFrame> {

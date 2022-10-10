@@ -5,7 +5,7 @@ use ant_sim::ant_sim::AntSimulator;
 use crate::{AntSimFrame};
 use async_std::future::{timeout};
 use egui::{Color32, ColorImage};
-use ant_sim::ant_sim_frame::{AntSim, AntSimCell};
+use ant_sim::ant_sim_frame::{AntSim};
 use crate::channel_actor::*;
 use crate::service_handle::*;
 use crate::sim_computation_service::{SimComputationFinished, SimComputationService, SimComputeMessage};
@@ -54,10 +54,10 @@ impl SimUpdateService {
         where S: 'static + Send + ServiceHandle<SimUpdateServiceMessage>,
               S::Err: 'static + Send + Display,
     {
-        let actor = ChannelActor::new_actor::<_, _, _, SimUpdateError<S::Err>, _, _>("SimUpdateService", send_to, move |rec, mut send_to, this| {
-            let mut compute_channel = async_std::channel::unbounded();
+        let actor = ChannelActor::new_actor::<_, _, _, SimUpdateError<S::Err>, _, _>("SimUpdateService", send_to, move |rec, mut send_to, _this| {
+            let compute_channel = async_std::channel::unbounded();
             let mut  compute = SimComputationService::new(compute_channel.0);
-            let mut timer = match Timer::new() {
+            let timer = match Timer::new() {
                 Ok(t) => t,
                 Err(err) => return ServiceCreateResult::Err(format!("failed to query time: {err}"))
             };
@@ -78,7 +78,7 @@ impl SimUpdateService {
                         timer.saturating_duration_till(&next_scheduled_update)
                     };
                     let mut save_requested = false;
-                    let mut received = timeout(use_delay, rec.recv()).await;
+                    let received = timeout(use_delay, rec.recv()).await;
                     if let Ok(message) = received {
                         let message = message.map_err(|_| SimUpdateError::QueueDied)?;
                         match message {
@@ -97,7 +97,7 @@ impl SimUpdateService {
                             SimUpdaterMessage::NewSim(sim) => {
                                 compute = compute.send(SimComputeMessage(sim.clone(), sim))
                                     .await
-                                    .map_err(|err| SimUpdateError::comp_service_died())?;
+                                    .map_err(|_| SimUpdateError::comp_service_died())?;
                                 next_scheduled_update = timer.now();
                                 ignore_updates += 1;
                             }
@@ -114,7 +114,7 @@ impl SimUpdateService {
                         Some(update) => update,
                         None => {
                             loop {
-                                let mut update = compute_channel.1.recv()
+                                let update = compute_channel.1.recv()
                                     .await
                                     .map_err(|_| SimUpdateError::comp_service_died())?;
                                 if ignore_updates > 0 {
@@ -127,7 +127,6 @@ impl SimUpdateService {
                         }
                     };
                     if save_requested {
-                        save_requested = false;
                         send_to = send_to.send(SimUpdateServiceMessage::CurrentState(update.0.clone()))
                             .await
                             .map_err(|(_, err)| SimUpdateError::SenderError(err))?;

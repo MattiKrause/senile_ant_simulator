@@ -2,22 +2,16 @@
 
 use std::fmt::{Display};
 use std::path::{PathBuf as SyncPathBuf};
-use async_std::path::PathBuf as AsyncPathBuf;
-use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     pin::Pin,
     future::Future
 };
 
-use async_std::channel::{Receiver as ChannelReceiver, Sender as ChannelSender, SendError};
-use std::thread::JoinHandle;
-use std::time::Duration;
+use async_std::channel::{Receiver as ChannelReceiver};
 use ant_sim::ant_sim::AntSimulator;
 use crate::AntSimFrame;
-use crate::service_handle::{SenderDiedError, ServiceHandle};
-use async_trait::async_trait;
-use ant_sim_save::AntSimData;
+use crate::service_handle::{ServiceHandle};
 use ant_sim_save::save_io::{DecodeSaveError, EncodeSaveError};
 use crate::channel_actor::{ChannelActor, WorkerError};
 
@@ -36,7 +30,7 @@ pub struct DroppedFileMessage {
 
 #[cfg(target_arch = "wasm32")]
 pub struct DroppedFileMessage {
-    pub bytes: Arc<[u8]>,
+    pub bytes: std::sync::Arc<[u8]>,
 }
 
 pub struct FileParsingError(pub String);
@@ -106,9 +100,8 @@ impl LoadFileService {
 
     #[cfg(not(target_arch = "wasm32"))]
     async fn handle_dropped_file(message: DroppedFileMessage) -> Result<AntSimulator<AntSimFrame>, String> {
-        use ant_sim_save::save_subsystem::ReadSaveFileError;
         let file_name = message.path_buf.file_name().and_then(|str| str.to_str()).unwrap_or("").to_owned();
-        let path_buf = AsyncPathBuf::from(message.path_buf);
+        let path_buf = async_std::path::PathBuf::from(message.path_buf);
         let bytes = async_std::fs::read(&path_buf)
             .await
             .map_err(|err| format!("Failed to read file {}: {err}", file_name))?;
@@ -122,7 +115,6 @@ impl LoadFileService {
     }
     #[cfg(target_arch = "wasm32")]
     async fn handle_dropped_file(message: DroppedFileMessage) -> Result<AntSimulator<AntSimFrame>, String> {
-        use ant_sim_save::save_io::DecodeSaveError;
         let mut bytes = message.bytes.as_ref();
         ant_sim_save::save_io::decode_save(&mut bytes, try_construct_frame).map_err(|err| match err {
             DecodeSaveError::FailedToRead(err) => format!("Failed to read the dropped file: {err}"),
@@ -139,7 +131,7 @@ impl LoadFileService {
     #[cfg(not(target_arch = "wasm32"))]
     async fn save_file_dialog(file: Pin<Box<dyn 'static + Send + Future<Output = Option<rfd::FileHandle>>>>, sim: &AntSimulator<AntSimFrame>) -> Option<(SyncPathBuf, Result<(), String>)> {
         let file = file.await?;
-        let file_path = AsyncPathBuf::from(file.path().to_path_buf());
+        let file_path = async_std::path::PathBuf::from(file.path().to_path_buf());
         let file = async_std::fs::OpenOptions::new()
             .create(true)
             .write(true)

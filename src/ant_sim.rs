@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::collections::HashMap;
 use crate::ant_sim_ant::{Ant, AntState};
 use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell, NonMaxU16};
 

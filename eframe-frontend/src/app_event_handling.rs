@@ -9,8 +9,9 @@ use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::NewAntSimVecImplError;
 use crate::{AntSimFrame, AppState};
 use crate::app::{AppEvents, BrushType, GameState, GameStateEdit};
+use crate::channel_actor::ChannelActor;
 use crate::load_file_service::LoadFileMessages;
-use crate::service_handle::ServiceHandle;
+use crate::service_handle::{SenderDiedError, ServiceHandle};
 use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
 
 pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
@@ -60,6 +61,7 @@ pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
                 state.preferred_path = Some(path);
             }
             AppEvents::CurrentVersion(sim) => {
+                log::debug!(target: "App", "received new version");
                 #[cfg(not(target_arch = "wasm32"))]
                 if state.save_requested {
                     state.save_requested = false;
@@ -260,6 +262,16 @@ pub fn handle_events(state: &mut AppState, ctx: &egui::Context) {
             AppEvents::SetCell(cell) => {
                 let GameState::Edit(ref mut edit) = state.game_state else { continue; };
                 edit.brush_cell = cell;
+            }
+            AppEvents::ImmediateNextFrame => {
+                resume_if_condition!(matches!(state.game_state, GameState::Launched));
+                let frame = resume_if_present!(state.services.update);
+                match frame.try_send(SimUpdaterMessage::ImmediateNextFrame) {
+                    Ok((service, _)) => {
+                        state.services.update = Some(service)
+                    }
+                    Err(_) => {}
+                }
             }
         }
     }

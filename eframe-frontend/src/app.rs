@@ -41,6 +41,7 @@ pub enum AppEvents {
     },
     SetBrush(BrushType),
     SetCell(AntSimCell),
+    ImmediateNextFrame
 }
 
 pub enum BrushType {
@@ -233,7 +234,11 @@ impl AppState {
                 _ => None,
             })
             .take(1)
-            .for_each(|key| self.send_me(AppEvents::SetCell(key)))
+            .for_each(|key| self.send_me(AppEvents::SetCell(key)));
+        if input.key_pressed(Key::ArrowRight) {
+            self.send_me(AppEvents::ImmediateNextFrame);
+
+        }
     }
 
     fn map_key_to_frame_delay(key: &egui::Key) -> Option<Duration> {

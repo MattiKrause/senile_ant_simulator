@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::mem::replace;
 use std::time::{Duration};
 use ant_sim::ant_sim::AntSimulator;
 use crate::{AntSimFrame};
@@ -7,7 +8,7 @@ use egui::{Color32, ColorImage};
 use ant_sim::ant_sim_frame::{AntSim, AntSimCell};
 use crate::channel_actor::*;
 use crate::service_handle::*;
-use crate::sim_computation_service::{SimComputationService, SimComputeMessage};
+use crate::sim_computation_service::{SimComputationFinished, SimComputationService, SimComputeMessage};
 use crate::time_polyfill::*;
 
 pub enum SimUpdaterMessage {
@@ -66,7 +67,7 @@ impl SimUpdateService {
                 let mut paused = start_paused;
                 let mut ignore_updates = 0u32;
                 let mut next_scheduled_update = timer.now();
-                let mut save_requested = false;
+                let mut peek: Option<SimComputationFinished> = None;
                 compute = compute.send(SimComputeMessage(sim.clone(), sim))
                     .await
                     .map_err(|_| SimUpdateError::comp_service_died())?;
@@ -76,16 +77,23 @@ impl SimUpdateService {
                     } else {
                         timer.saturating_duration_till(&next_scheduled_update)
                     };
+                    let mut save_requested = false;
                     let mut received = timeout(use_delay, rec.recv()).await;
                     if let Ok(message) = received {
                         let message = message.map_err(|_| SimUpdateError::QueueDied)?;
                         match message {
                             SimUpdaterMessage::SetDelay(new_delay) => {
                                 next_scheduled_update = Self::new_scheduled_time(&timer, next_scheduled_update, new_delay, delay);
-                                delay = new_delay
+                                delay = new_delay;
+                                continue;
                             }
-                            SimUpdaterMessage::Pause(new_paused) => paused = new_paused,
-                            SimUpdaterMessage::ImmediateNextFrame => next_scheduled_update = timer.now(),
+                            SimUpdaterMessage::Pause(new_paused) => {
+                                paused = new_paused;
+                                continue;
+                            },
+                            SimUpdaterMessage::ImmediateNextFrame => {
+                                next_scheduled_update = timer.now();
+                            },
                             SimUpdaterMessage::NewSim(sim) => {
                                 compute = compute.send(SimComputeMessage(sim.clone(), sim))
                                     .await
@@ -97,26 +105,38 @@ impl SimUpdateService {
                                 save_requested = true;
                             }
                         }
-                        continue;
                     }
-                    let update = loop {
-                        let mut update = compute_channel.1.recv().await.map_err(|_| SimUpdateError::comp_service_died())?;
-                        if ignore_updates > 0 {
-                            ignore_updates -= 1;
-                            continue;
-                        } else {
-                            break update;
+                    if ignore_updates > 0 && peek.is_some() {
+                        peek = None;
+                        ignore_updates -= 1;
+                    }
+                    let update = match replace(&mut peek, None) {
+                        Some(update) => update,
+                        None => {
+                            loop {
+                                let mut update = compute_channel.1.recv()
+                                    .await
+                                    .map_err(|_| SimUpdateError::comp_service_died())?;
+                                if ignore_updates > 0 {
+                                    ignore_updates -= 1;
+                                    continue;
+                                } else {
+                                    break update;
+                                }
+                            }
                         }
                     };
-
-                    let image = Self::sim_to_image(update.0.as_ref());
-                    next_scheduled_update = timer.now().checked_add(delay).unwrap_or(next_scheduled_update);
                     if save_requested {
                         save_requested = false;
                         send_to = send_to.send(SimUpdateServiceMessage::CurrentState(update.0.clone()))
                             .await
                             .map_err(|(_, err)| SimUpdateError::SenderError(err))?;
+                        peek = Some(update);
+                        continue;
                     }
+                    let image = Self::sim_to_image(update.0.as_ref());
+                    next_scheduled_update = timer.now().checked_add(delay).unwrap_or(next_scheduled_update);
+
                     send_to = send_to.send(SimUpdateServiceMessage::NewFrame(image))
                         .await
                         .map_err(|(_, err)| SimUpdateError::SenderError(err))?;

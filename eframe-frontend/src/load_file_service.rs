@@ -156,7 +156,8 @@ impl LoadFileService {
             EncodeSaveError::InvalidData => format!("simulation data is invalid"),
         })?;
         let mut file = file.await.map_err(|err| format!("failed to open file: {err}"))?;
-        file.write_all(&repr);
+        dbg!(repr.len());
+        file.write_all(&repr).await.map_err(|err| format!("failed to write to file: {err}"))?;
         Ok(())
     }
 }

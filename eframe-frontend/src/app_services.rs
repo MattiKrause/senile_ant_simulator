@@ -79,7 +79,7 @@ impl Debug for AppEvents {
             AppEvents::RequestSetSeed => write!(f, "AppEvent: RequestSetSeed"),
             AppEvents::PaintStroke { .. } => write!(f, "AppEvent: PaintStroke"),
             AppEvents::SetBrush(_) => write!(f, "AppEvents: SetBrush"),
-            AppEvents::SetCell(_) => write!(f, "AppEvents: SetBrush"),
+            AppEvents::SetCell(_) => write!(f, "AppEvents: SetCell"),
             AppEvents::ImmediateNextFrame => write!(f, "AppEvents: ImmediateNextFrame")
         }
     }

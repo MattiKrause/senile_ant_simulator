@@ -52,17 +52,17 @@ mod comp_time {
         }
         pub fn saturating_duration_till(&self, since: &Time) -> Duration {
             let now: f64 = self.now().0;
-            let diff = now - since.0;
+            let diff = since.0 - now;
             Duration::try_from_secs_f64(diff / 1000.0).unwrap_or(Duration::ZERO)
         }
     }
 
     impl Time {
         pub fn checked_add(&self, add: Duration) -> Option<Self> {
-            Some(Time(self.0.add(add.as_secs_f64())))
+            Some(Time(self.0.add(add.as_secs_f64() * 1000.0)))
         }
         pub fn checked_sub(&self, sub: Duration) -> Option<Self> {
-            Some(self.0 - sub.as_secs_f64()).filter(|diff| diff >= &0.0).map(Time)
+            Some(self.0 - sub.as_secs_f64() * 1000.0).filter(|diff| diff >= &0.0).map(Time)
         }
         pub fn before(&self, other: &Self) -> bool {
             other.0 < other.0

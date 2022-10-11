@@ -212,8 +212,8 @@ impl AppState {
             self.send_me(AppEvents::RequestPause);
         }
         input.events.iter()
-            .filter_map(|event| if let Event::Key { key, ..} = event {
-                Some(key)
+            .filter_map(|event| if let Event::Key { key, pressed, ..} = event {
+                pressed.then_some(key)
             } else {
                 None
             })

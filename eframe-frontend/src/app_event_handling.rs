@@ -30,6 +30,7 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
         }
     let mut event_query = state.mailbox.try_recv();
     while let Ok(event) = event_query {
+        log::debug!(target: "App", "{event:?}");
         event_query = state.mailbox.try_recv();
         match event {
             AppEvents::ReplaceSim(ant_sim) => {
@@ -52,7 +53,9 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                 }
             }
             AppEvents::NewStateImage(image) => {
+                log::debug!("test");
                 state.game_image.set(image, TextureFilter::Nearest);
+                _ctx.request_repaint();
             }
             AppEvents::SetPreferredSearchPath(path) => {
                 state.preferred_path = Some(path);

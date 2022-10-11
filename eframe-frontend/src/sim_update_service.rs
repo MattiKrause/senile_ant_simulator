@@ -16,12 +16,12 @@ pub enum SimUpdaterMessage {
     Pause(bool),
     ImmediateNextFrame,
     NewSim(Box<AntSimulator<AntSimFrame>>),
-    RequestCurrentState
+    RequestCurrentState,
 }
 
 pub enum SimUpdateServiceMessage {
     NewFrame(egui::ImageData),
-    CurrentState(Box<AntSimulator<AntSimFrame>>)
+    CurrentState(Box<AntSimulator<AntSimFrame>>),
 }
 
 pub type SimUpdateService = ChannelActor<SimUpdaterMessage>;
@@ -56,7 +56,7 @@ impl SimUpdateService {
     {
         let actor = ChannelActor::new_actor::<_, _, _, SimUpdateError<S::Err>, _, _>("SimUpdateService", send_to, move |rec, mut send_to, _this| {
             let compute_channel = async_std::channel::unbounded();
-            let mut  compute = SimComputationService::new(compute_channel.0);
+            let mut compute = SimComputationService::new(compute_channel.0);
             let timer = match Timer::new() {
                 Ok(t) => t,
                 Err(err) => return ServiceCreateResult::Err(format!("failed to query time: {err}"))
@@ -72,14 +72,15 @@ impl SimUpdateService {
                     .await
                     .map_err(|_| SimUpdateError::comp_service_died())?;
                 loop {
-                    let use_delay = if paused {
-                        Duration::MAX
+                    let received = if paused {
+                        Some(rec.recv().await)
                     } else {
-                        timer.saturating_duration_till(&next_scheduled_update)
+                        let use_delay = timer.saturating_duration_till(&next_scheduled_update);
+                        let result = async_std::future::timeout(use_delay, rec.recv()).await.ok();
+                        result
                     };
                     let mut save_requested = false;
-                    let received = timeout(use_delay, rec.recv()).await;
-                    if let Ok(message) = received {
+                    if let Some(message) = received {
                         let message = message.map_err(|_| SimUpdateError::QueueDied)?;
                         match message {
                             SimUpdaterMessage::SetDelay(new_delay) => {
@@ -90,10 +91,10 @@ impl SimUpdateService {
                             SimUpdaterMessage::Pause(new_paused) => {
                                 paused = new_paused;
                                 continue;
-                            },
+                            }
                             SimUpdaterMessage::ImmediateNextFrame => {
                                 next_scheduled_update = timer.now();
-                            },
+                            }
                             SimUpdaterMessage::NewSim(sim) => {
                                 compute = compute.send(SimComputeMessage(sim.clone(), sim))
                                     .await
@@ -135,7 +136,7 @@ impl SimUpdateService {
                     }
                     let image = Self::sim_to_image(update.0.as_ref());
                     next_scheduled_update = timer.now().checked_add(delay).unwrap_or(next_scheduled_update);
-
+                    log::debug!("sending new image");
                     send_to = send_to.send(SimUpdateServiceMessage::NewFrame(image))
                         .await
                         .map_err(|(_, err)| SimUpdateError::SenderError(err))?;

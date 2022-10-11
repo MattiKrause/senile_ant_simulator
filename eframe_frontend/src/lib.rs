@@ -10,6 +10,8 @@ mod service_handle;
 mod app_services;
 mod sim_computation_service;
 mod sim_update_service;
+/// time polyfill, since std::time::Instant does not work on wasm32 and wasm_timer
+/// appears to be unmaintained.
 mod time_polyfill;
 mod channel_actor;
 mod app_event_handling;

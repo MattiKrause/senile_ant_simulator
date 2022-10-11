@@ -36,6 +36,7 @@ mod comp_time {
     use std::ops::Add;
     use std::time::{Duration};
 
+    /// represents point in time in milliseconds, akin to [std::time::Instant]
     pub struct Time(f64);
     pub struct Timer(web_sys::Performance);
 

@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 
 [workspace]
-members = ["frontend_pixels_winit", "ant_sim_save", "recorder","frontend_recording", "notan_frontend", "rgba_adapter", "eframe-frontend"]
+members = ["frontend_pixels_winit", "ant_sim_save", "recorder","frontend_recording", "notan_frontend", "rgba_adapter", "eframe_frontend"]
 
 [lib]
 crate-type = ["rlib"]

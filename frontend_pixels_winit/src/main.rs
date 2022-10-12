@@ -11,12 +11,12 @@ use chrono::{DateTime, Local};
 
 use ant_sim::ant_sim::{AntSimulator};
 
-use ant_sim::ant_sim_ant::{AntState};
-use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
+use ant_sim::ant_sim_frame::{AntSim};
 use ant_sim::ant_sim_frame_impl::AntSimVecImpl;
 use ant_sim_save::save_subsystem::*;
+use recorder::BufConsumer;
 use recorder::gif_recorder::GIFRecorder;
-use recorder::RgbaBufRef;
+use rgba_adapter::RgbaBufRef;
 
 const DEFAULT_FRAME_LEN: Duration = Duration::from_millis(1000);
 static _POINTS3: [(f64, f64); 8] = [
@@ -134,7 +134,7 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
             if let Ok(state) = state.try_lock() {
                 last_loop = Instant::now();
                 draw_state(&state.1, &mut screen);
-                //let _ = gif.new_frame(RgbaBufRef::try_from(screen.get_frame().chunks_exact(4)).unwrap(), Duration::from_millis(20));
+                let _ = gif.write_buf(RgbaBufRef::try_from(screen.get_frame_mut()).unwrap(), Duration::from_millis(20));
                 write_auto_save(&mut save_class, "default-save", state.1.as_ref()).unwrap();
                 drop(state);
                 proceed.notify_all();
@@ -155,50 +155,8 @@ fn main_loop(event_loop: EventLoop<()>, mut screen: Pixels, state: AntSimulator<
         }
     });
 }
-
-fn pixel(frame: &mut [u8], pix: usize) -> &mut [u8] {
-    let pix = pix * 4;
-    &mut frame[pix..(pix + 4)]
-}
-
-fn pixel_of_pos(width: usize, frame: &mut [u8], pos: AntPosition) -> &mut [u8] {
-    let AntPosition { x, y } = pos;
-    let pix = y * width + x;
-    pixel(frame, pix)
-}
-
 fn draw_state<A: AntSim>(sim: &AntSimulator<A>, on: &mut Pixels) {
-    let frame = on.get_frame();
-    for cell in sim.sim.cells() {
-        let (cell, pos): (AntSimCell, A::Position) = cell;
-        let pos = sim.sim.decode(&pos);
-        let pixel = pixel_of_pos(sim.sim.width(), frame, pos);
-        let color = match cell {
-            AntSimCell::Path { pheromone_food, pheromone_home } => {
-                [(pheromone_food.get() / 256u16) as u8, 0, (pheromone_home.get() / 256u16) as u8, 0xFF]
-            }
-            AntSimCell::Blocker => {
-                [0xAF, 0xAF, 0xAF, 0xFF]
-            }
-            AntSimCell::Home => {
-                [0xFF, 0xFF, 0x00, 0xFF]
-            }
-            AntSimCell::Food { amount } => {
-                [0, (amount / 256u16) as u8, 0, 0xFF]
-            }
-        };
-        pixel.copy_from_slice(&color);
-    }
-    for ant in &sim.ants {
-        let pos = sim.sim.decode(ant.position());
-        let color = match ant.state(){
-            AntState::Foraging => [0xFF, 0xFF, 0xFF, 0xFF],
-            AntState::Hauling { amount }=> {
-                let amount  = (*amount / 256u16) as u8 * (u8::MAX / 2);
-                [0xFF - amount, 0xFF, 0xFF - amount, 0xFF]
-            }
-        };
-        pixel_of_pos(sim.sim.width(), frame, pos).copy_from_slice(&color);
-    }
+    let frame = on.get_frame_mut();
+    rgba_adapter::draw_to_buf(sim, RgbaBufRef::try_from(frame).unwrap());
     on.render().unwrap();
 }

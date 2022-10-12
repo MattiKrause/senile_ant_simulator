@@ -1,0 +1,24 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose -p=eframe_frontend -p=frontend_recording
+    - name: BuildWasm
+      run: cargo build --verbose --target=wasm32-unknown-unknown -p=eframe_frontend
+    - name: Run tests
+      run: cargo test --verbose

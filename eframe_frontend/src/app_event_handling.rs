@@ -449,6 +449,11 @@ impl Brush {
             }
             circle_part(radius, radius, x, y,  &mut points);
         }
+        points.iter_mut().for_each(|p| {
+            p[0] = p[0].wrapping_sub(radius);
+            p[1] = p[1].wrapping_sub(radius);
+        });
+
         Self {
             positions: points.into_boxed_slice()
         }

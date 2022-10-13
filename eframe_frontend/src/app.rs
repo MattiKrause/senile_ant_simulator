@@ -40,9 +40,11 @@ pub enum AppEvents {
     BoardClick([f32; 2])
 }
 
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum BrushType {
     Circle(usize)
 }
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum BrushMaterial {
     Cell(AntSimCell),
     AntSpawn,
@@ -273,7 +275,7 @@ impl AppState {
         } else {
             return;
         };
-        let GameStateEdit { width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius, .. } = e.as_mut();
+        let GameStateEdit { sim, width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius, brush_material, .. } = e.as_mut();
         let input_locked = &mut self.input_locked;
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("Edit game values");
@@ -314,11 +316,35 @@ impl AppState {
                 seed.on_hover_text("controls the seed of the game; A different seed will lead to different actions performed by the ants")
             });
             ui.horizontal(|ui| {
+                ui.label("ant count: ");
+                let mut dmp = sim.ants.len().to_string();
+                ui.add_enabled(false, egui::TextEdit::singleline(&mut dmp).interactive(false));
+            });
+            ui.horizontal(|ui| {
                 ui.label("brush radius: ");
                 let seed = egui::Slider::new(brush_circle_radius, 1..=100).ui(ui);
                 if seed.changed() {
                     send_me!(AppEvents::SetBrushType(BrushType::Circle(*brush_circle_radius)));
                 }
+            });
+            ui.horizontal(|ui| {
+                ui.label("brush kind: ");
+                ui.horizontal(|ui| {
+                    let mut new = brush_material.clone();
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut new, BrushMaterial::Cell(AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) }), "clear");
+                        ui.radio_value(&mut new, BrushMaterial::Cell(AntSimCell::Blocker), "blocker");
+                        ui.radio_value(&mut new, BrushMaterial::AntSpawn, "spawn ant");
+                    });
+                    ui.vertical(|ui| {
+                        ui.radio_value(&mut new, BrushMaterial::Cell(AntSimCell::Food { amount: u16::MAX }), "food");
+                        ui.radio_value(&mut new, BrushMaterial::Cell(AntSimCell::Home), "home");
+                        ui.radio_value(&mut new, BrushMaterial::AntKill, "remove ant");
+                    });
+                    if &new != brush_material {
+                        send_me!(AppEvents::SetBrushMaterial(new));
+                    }
+                });
             });
 
             /*ui.horizontal(|ui| {
@@ -368,6 +394,8 @@ impl eframe::App for AppState {
                     String::from("Edit")
                 } else if self.game_speed.paused {
                     String::from("Paused")
+                } else if self.game_speed.delay == Duration::ZERO {
+                    String::from("Fastest")
                 } else {
                     let mut str = format!("{:.2}s", self.game_speed.delay.as_secs_f64());
                     if str.ends_with(".0s") {

@@ -31,12 +31,11 @@ jobs:
         uses: actions/configure-pages@v2
       - name: InstallTrunk
         run: cargo install trunk
-      - name: go to eframe dir
-        run: cd eframe_frontend 
       - name: build eframe
-        run: trunk build --release
-      - name: move out dir
-        run: mv ./dist ../_site
+        run: |
+          cd eframe_frontend 
+          trunk build --release
+          mv ./dist ../_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
 

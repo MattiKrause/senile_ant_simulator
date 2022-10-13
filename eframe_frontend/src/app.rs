@@ -284,6 +284,7 @@ impl AppState {
                     *input_locked = false;
                     send_me!(AppEvents::RequestSetBoardWidth);
                 }
+                width.on_hover_text("set the width of the board")
             });
             ui.horizontal(|ui| {
                 ui.label("height: ");
@@ -295,6 +296,7 @@ impl AppState {
                     *input_locked = false;
                     send_me!(AppEvents::RequestSetBoardHeight);
                 }
+                height.on_hover_text("Set the height of the board")
             });
             ui.horizontal(|ui| {
                 ui.label("seed: ");
@@ -306,6 +308,7 @@ impl AppState {
                     *input_locked = false;
                     send_me!(AppEvents::RequestSetSeed);
                 }
+                seed.on_hover_text("controls the seed of the game; A different seed will lead to different actions performed by the ants")
             });
             ui.horizontal(|ui| {
                 ui.label("brush radius: ");

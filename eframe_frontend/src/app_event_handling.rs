@@ -1,12 +1,13 @@
 use std::mem::replace;
 use std::str::FromStr;
 use egui::{TextureFilter, TextureHandle};
+use rand::{Rng, SeedableRng};
 use ant_sim::ant_sim::AntSimulator;
-use ant_sim::ant_sim_ant::Ant;
+use ant_sim::ant_sim_ant::{Ant, AntState};
 use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::NewAntSimVecImplError;
 use crate::{AntSimFrame, AppState};
-use crate::app::{AppEvents, BrushType, GameState, GameStateEdit};
+use crate::app::{AppEvents, BrushMaterial, BrushType, GameState, GameStateEdit};
 use crate::load_file_service::LoadFileMessages;
 use crate::service_handle::{ServiceHandle};
 use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
@@ -247,10 +248,11 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
             }
             AppEvents::PaintStroke { from, to } => {
                 let GameState::Edit(ref mut edit) = state.game_state else { continue; };
-                paint_stroke(from, to, edit.brush_cell.clone(), &edit.brush_form, &mut edit.sim.sim);
+                let BrushMaterial::Cell(ref cell) = edit.brush_material else { continue };
+                paint_stroke(from, to, cell.clone(), &edit.brush_form, &mut edit.sim.sim);
                 repaint(edit.sim.as_ref(), &mut state.game_image);
             }
-            AppEvents::SetBrush(b) => {
+            AppEvents::SetBrushType(b) => {
                 let GameState::Edit(ref mut edit) = state.game_state else { continue; };
                 let new_brush = match b {
                     BrushType::Circle(c) => {
@@ -259,9 +261,9 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                 };
                 edit.brush_form = new_brush;
             }
-            AppEvents::SetCell(cell) => {
+            AppEvents::SetBrushMaterial(cell) => {
                 let GameState::Edit(ref mut edit) = state.game_state else { continue; };
-                edit.brush_cell = cell;
+                edit.brush_material = cell;
             }
             AppEvents::ImmediateNextFrame => {
                 resume_if_condition!(matches!(state.game_state, GameState::Launched));
@@ -273,10 +275,62 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                     Err(_) => {}
                 }
             }
+            AppEvents::BoardClick(click) => {
+                let GameState::Edit(ref mut edit) = state.game_state else {
+                    continue;
+                };
+                resume_if_condition!(matches!(edit.brush_material, BrushMaterial::Ant));
+                let pos = click.map(|c| c as usize);
+                let pos = AntPosition {
+                    x: pos[0],
+                    y: pos[1]
+                };
+                let Some(pos) = edit.sim.sim.encode(pos) else { continue; };
+                let mut seed = [0u8; 32];
+                let copy_value = edit.sim.seed + edit.sim.ants.len() as u64;
+                seed.chunks_mut(8).for_each(|chunk| chunk.copy_from_slice(&edit.sim.seed.to_le_bytes()));
+                let eweight = rand::prelude::StdRng::from_seed(seed).gen_range(0.55..0.65);
+                let ant = Ant::new(pos.clone(), pos, eweight, AntState::Foraging);
+                edit.sim.ants.push(ant);
+                repaint(&edit.sim, &mut state.game_image);
+
+            }
         }
     }
     if let Err(async_std::channel::TryRecvError::Closed) = event_query {
         panic!("services down!");
+    }
+}
+
+fn with_points_on_line(from: [f32; 2], to: [f32; 2], mut with: impl FnMut(AntPosition)) {
+    let from = from.map(|c| c as usize);
+    let to = to.map(|c| c as usize);
+    let (dx, ix) = if from[0] <= to[0] {
+        (to[0] - from[0], 1)
+    } else {
+        (from[0] - to[0], usize::MAX)
+    };
+    let dx = dx as isize;
+    let (dy, iy) = if from[1] <= to[1] {
+        (to[1] - from[1], 1)
+    } else {
+        (from[1] - to[1], usize::MAX)
+    };
+    let dy = -(dy as isize);
+    let mut current = AntPosition { x: from[0] as usize, y: from[1] as usize};
+    let mut error = dx + dy;
+    loop {
+        with(current);
+        let break_cond = current.x == to[0];
+        let e2 = error * 2;
+        let e2_larger_dy = e2 >= dy;
+        error = error.wrapping_add(dy * (e2_larger_dy as isize));
+        current.x = current.x.wrapping_add(ix * (e2_larger_dy as usize));
+        if break_cond && e2_larger_dy { break; }
+        let e2_smaller_dx = e2 <= dx;
+        error = error.wrapping_add(dx * (e2_smaller_dx as isize));
+        if (current.y == to[1]) & (break_cond | e2_smaller_dx) { break; }
+        current.y = current.y.wrapping_add(iy * (e2_smaller_dx as usize));
     }
 }
 
@@ -301,39 +355,12 @@ fn paint_stroke(from: [f32; 2], to: [f32; 2], cell: AntSimCell, brush: &Brush, o
         };
         on.set_cell(&pos, AntSimCell::Food { amount: u16::MAX  - 1 })
     }*/
-
-    let from = from.map(|c| c as usize);
-    let to = to.map(|c| c as usize);
-    let (dx, ix) = if from[0] <= to[0] {
-        (to[0] - from[0], 1)
-    } else {
-        (from[0] - to[0], usize::MAX)
-    };
-    let dx = dx as isize;
-    let (dy, iy) = if from[1] <= to[1] {
-        (to[1] - from[1], 1)
-    } else {
-        (from[1] - to[1], usize::MAX)
-    };
-    let dy = -(dy as isize);
-    let mut current = AntPosition { x: from[0] as usize, y: from[1] as usize};
-    let mut error = dx + dy;
-    loop {
+    with_points_on_line(from, to, |current| {
         for pos in brush.apply_to_pos(current) {
             let Some(pos) = on.encode(pos) else { continue };
             on.set_cell(&pos, cell.clone());
         }
-        let break_cond = current.x == to[0];
-        let e2 = error * 2;
-        let e2_larger_dy = e2 >= dy;
-        error = error.wrapping_add(dy * (e2_larger_dy as isize));
-        current.x = current.x.wrapping_add(ix * (e2_larger_dy as usize));
-        if break_cond && e2_larger_dy { break; }
-        let e2_smaller_dx = e2 <= dx;
-        error = error.wrapping_add(dx * (e2_smaller_dx as isize));
-        if (current.y == to[1]) & (break_cond | e2_smaller_dx) { break; }
-        current.y = current.y.wrapping_add(iy * (e2_smaller_dx as usize));
-    }
+    });
 }
 
 #[inline(never)]

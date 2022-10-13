@@ -63,24 +63,30 @@ impl<F: TryFrom<AppEvents> + Send + 'static, S: ServiceHandle<AppEvents> + Send>
 
 impl Debug for AppEvents {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        macro_rules! str_event {
+            ($e: ident) => {
+                write!(f, stringify!(AppEvents::$e))
+            };
+        }
         match self {
-            AppEvents::ReplaceSim(_) => write!(f, "AppEvent::ReplaceSim"),
-            AppEvents::NewStateImage(_) => write!(f, "AppEvent::NewStateImage"),
-            AppEvents::SetPreferredSearchPath(_) => write!(f,  "AppEvent: UpdatePreferredPath"),
-            AppEvents::CurrentVersion(_) => write!(f, "AppEvent: CurrentVersion"),
-            AppEvents::Error(err) => write!(f, "AppEvent: Error({err})"),
-            AppEvents::RequestPause => write!(f, "AppEvent: RequestPause"),
-            AppEvents::DelayRequest(_) => write!(f, "AppEvent: DelayRequest"),
-            AppEvents::RequestLoadGame => write!(f, "AppEvent: RequestLoadGame"),
-            AppEvents::RequestSaveGame => write!(f, "AppEvent: RequestSaveGame"),
-            AppEvents::RequestLaunch => write!(f, "AppEvent: RequestLaunch"),
-            AppEvents::RequestSetBoardWidth => write!(f, "AppEvent: SetBoardWidth"),
-            AppEvents::RequestSetBoardHeight => write!(f, "AppEvent: SetBoardHeight"),
-            AppEvents::RequestSetSeed => write!(f, "AppEvent: RequestSetSeed"),
-            AppEvents::PaintStroke { .. } => write!(f, "AppEvent: PaintStroke"),
-            AppEvents::SetBrush(_) => write!(f, "AppEvents: SetBrush"),
-            AppEvents::SetCell(_) => write!(f, "AppEvents: SetCell"),
-            AppEvents::ImmediateNextFrame => write!(f, "AppEvents: ImmediateNextFrame")
+            AppEvents::ReplaceSim(_) => str_event!(ReplaceSim),
+            AppEvents::NewStateImage(_) => str_event!(NewStateImage),
+            AppEvents::SetPreferredSearchPath(_) => str_event!(SetPreferredSearchPath),
+            AppEvents::CurrentVersion(_) => str_event!(CurrentVersion),
+            AppEvents::Error(err) => write!(f, "AppEvent::Error({err})"),
+            AppEvents::RequestPause => str_event!(RequestPause),
+            AppEvents::DelayRequest(_) => str_event!(DelayRequest),
+            AppEvents::RequestLoadGame => str_event!(RequestLoadGame),
+            AppEvents::RequestSaveGame => str_event!(RequestSaveGame),
+            AppEvents::RequestLaunch => str_event!(RequestLaunch),
+            AppEvents::RequestSetBoardWidth => str_event!(RequestSetBoardWidth),
+            AppEvents::RequestSetBoardHeight => str_event!(RequestSetBoarHeight),
+            AppEvents::RequestSetSeed => str_event!(RequestSetSeed),
+            AppEvents::PaintStroke { .. } => str_event!(PaintStroke),
+            AppEvents::SetBrushType(_) => str_event!(SetBrushType),
+            AppEvents::SetBrushMaterial(_) => str_event!(SetBrushMaterial),
+            AppEvents::ImmediateNextFrame => str_event!(ImmediateNextFrame),
+            AppEvents::BoardClick(_) => str_event!(BoardClick)
         }
     }
 }

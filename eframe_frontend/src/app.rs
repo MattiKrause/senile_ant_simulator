@@ -45,7 +45,8 @@ pub enum BrushType {
 }
 pub enum BrushMaterial {
     Cell(AntSimCell),
-    Ant
+    AntSpawn,
+    AntKill
 }
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 pub struct AppState {
@@ -234,7 +235,9 @@ impl AppState {
             .map(BrushMaterial::Cell)
             .for_each(|key| self.send_me(AppEvents::SetBrushMaterial(key)));
         if input.key_pressed(Key::A) {
-            self.send_me(AppEvents::SetBrushMaterial(BrushMaterial::Ant));
+            self.send_me(AppEvents::SetBrushMaterial(BrushMaterial::AntSpawn));
+        } else if input.key_pressed(Key::K) {
+            self.send_me(AppEvents::SetBrushMaterial(BrushMaterial::AntKill))
         }
         if input.key_pressed(Key::ArrowRight) {
             self.send_me(AppEvents::ImmediateNextFrame);

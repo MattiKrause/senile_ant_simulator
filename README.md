@@ -71,6 +71,7 @@ Loading a file sets the app to edit mode, which allows you to:
   * B for blocker
   * H for home
   * F for food
+  * A for ants
 
 The game can be launched using the start butting on the left.
 The game speed is displayed at the top right and can be set using the keys 0-9 and p,

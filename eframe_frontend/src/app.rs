@@ -34,15 +34,19 @@ pub enum AppEvents {
         from: [f32; 2],
         to: [f32; 2],
     },
-    SetBrush(BrushType),
-    SetCell(AntSimCell),
-    ImmediateNextFrame
+    SetBrushType(BrushType),
+    SetBrushMaterial(BrushMaterial),
+    ImmediateNextFrame,
+    BoardClick([f32; 2])
 }
 
 pub enum BrushType {
     Circle(usize)
 }
-
+pub enum BrushMaterial {
+    Cell(AntSimCell),
+    Ant
+}
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 pub struct AppState {
     pub game_image: TextureHandle,
@@ -70,7 +74,7 @@ pub struct GameStateEdit {
     pub sim: Box<AntSimulator<AntSimFrame>>,
     pub show_side_panel: bool,
     pub brush_form: Brush,
-    pub brush_cell: AntSimCell,
+    pub brush_material: BrushMaterial,
     pub width_text_buffer: String,
     pub height_text_buffer: String,
     pub seed_text_buffer: String,
@@ -82,7 +86,7 @@ impl GameStateEdit {
         Self {
             show_side_panel: false,
             brush_form: Brush::new_circle(1),
-            brush_cell: AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) },
+            brush_material: BrushMaterial::Cell(AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) }),
             width_text_buffer: sim.sim.width().to_string(),
             height_text_buffer: sim.sim.height().to_string(),
             seed_text_buffer: sim.seed.to_string(),
@@ -227,7 +231,11 @@ impl AppState {
                 _ => None,
             })
             .take(1)
-            .for_each(|key| self.send_me(AppEvents::SetCell(key)));
+            .map(BrushMaterial::Cell)
+            .for_each(|key| self.send_me(AppEvents::SetBrushMaterial(key)));
+        if input.key_pressed(Key::A) {
+            self.send_me(AppEvents::SetBrushMaterial(BrushMaterial::Ant));
+        }
         if input.key_pressed(Key::ArrowRight) {
             self.send_me(AppEvents::ImmediateNextFrame);
 
@@ -303,7 +311,7 @@ impl AppState {
                 ui.label("brush radius: ");
                 let seed = egui::Slider::new(brush_circle_radius, 1..=100).ui(ui);
                 if seed.changed() {
-                    send_me!(AppEvents::SetBrush(BrushType::Circle(*brush_circle_radius)));
+                    send_me!(AppEvents::SetBrushType(BrushType::Circle(*brush_circle_radius)));
                 }
             });
 
@@ -390,6 +398,13 @@ impl eframe::App for AppState {
                         || (on_image_current[0] < image_size.x && on_image_current[1] < image_size.y) {
                         self.send_me(AppEvents::PaintStroke { from: on_image_starting, to: on_image_current })
                     }
+                }
+                if image.clicked() {
+                    let current = image.interact_pointer_pos().unwrap() - image.rect.min;
+                    let x_ratio = image_size.x / size[0];
+                    let y_ratio = image_size.y / size[1];
+                    let on_image_current = [current.x * x_ratio, current.y * y_ratio];
+                    self.send_me(AppEvents::BoardClick(on_image_current))
                 }
             });
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {

@@ -279,19 +279,32 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                 let GameState::Edit(ref mut edit) = state.game_state else {
                     continue;
                 };
-                resume_if_condition!(matches!(edit.brush_material, BrushMaterial::Ant));
                 let pos = click.map(|c| c as usize);
                 let pos = AntPosition {
                     x: pos[0],
                     y: pos[1]
                 };
                 let Some(pos) = edit.sim.sim.encode(pos) else { continue; };
-                let mut seed = [0u8; 32];
-                let copy_value = edit.sim.seed + edit.sim.ants.len() as u64;
-                seed.chunks_mut(8).for_each(|chunk| chunk.copy_from_slice(&edit.sim.seed.to_le_bytes()));
-                let eweight = rand::prelude::StdRng::from_seed(seed).gen_range(0.55..0.65);
-                let ant = Ant::new(pos.clone(), pos, eweight, AntState::Foraging);
-                edit.sim.ants.push(ant);
+                match edit.brush_material {
+                    BrushMaterial::AntSpawn => {
+                        let mut seed = [0u8; 32];
+                        let copy_value = edit.sim.seed + edit.sim.ants.len() as u64;
+                        seed.chunks_mut(8).for_each(|chunk| chunk.copy_from_slice(&edit.sim.seed.to_le_bytes()));
+                        let eweight = rand::prelude::StdRng::from_seed(seed).gen_range(0.55..0.65);
+                        let ant = Ant::new(pos.clone(), pos, eweight, AntState::Foraging);
+                        edit.sim.ants.push(ant);
+                    }
+                    BrushMaterial::AntKill => {
+                        let ant = edit.sim.ants.iter().map(Ant::position)
+                            .enumerate()
+                            .filter(|ant_pos| ant_pos.1 == &pos)
+                            .last();
+                        if let Some((i, _)) = ant {
+                            edit.sim.ants.remove(i);
+                        }
+                    }
+                    _ => continue,
+                };
                 repaint(&edit.sim, &mut state.game_image);
 
             }

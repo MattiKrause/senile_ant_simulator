@@ -36,6 +36,10 @@ jobs:
           cd eframe_frontend 
           trunk build --release
           mv ./dist ../_site
+      - name: change html base path
+        run: sed -i 's/<base href="\/" \/>/<base href="\/senile_ant_simulator\/" \/>/g' _site/index.html
+      - name: add no jekyll marker
+        run: touch _site/.nojekyll
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
 

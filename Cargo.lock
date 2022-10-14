@@ -1021,7 +1021,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eframe_frontend"
+name = "eframe-frontend"
 version = "0.1.0"
 dependencies = [
  "ant_sim",

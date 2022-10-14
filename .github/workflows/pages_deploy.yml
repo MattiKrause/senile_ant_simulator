@@ -34,10 +34,8 @@ jobs:
       - name: build eframe
         run: |
           cd eframe_frontend 
-          trunk build --release
+          trunk build --release --public-url "https://mattikrause.github.io/senile_ant_simulator/"
           mv ./dist ../_site
-      - name: change html base path
-        run: sed -i 's/<base href="\/" \/>/<base href="\/senile_ant_simulator\/" \/>/g' _site/index.html
       - name: add no jekyll marker
         run: touch _site/.nojekyll
       - name: Upload artifact

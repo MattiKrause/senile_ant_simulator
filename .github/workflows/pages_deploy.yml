@@ -34,7 +34,7 @@ jobs:
       - name: build eframe
         run: |
           cd eframe_frontend 
-          trunk build --release --public-url "https://mattikrause.github.io/senile_ant_simulator/"
+          trunk build --release --public-url "senile_ant_simulator"
           mv ./dist ../_site
       - name: add no jekyll marker
         run: touch _site/.nojekyll

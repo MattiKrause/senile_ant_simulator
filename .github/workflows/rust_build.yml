@@ -19,6 +19,6 @@ jobs:
     - name: Build
       run: cargo build --verbose -p=eframe-frontend -p=frontend_recording
     - name: BuildWasm
-      run: cargo build --verbose --target=wasm32-unknown-unknown -p=eframe_frontend
+      run: cargo build --verbose --target=wasm32-unknown-unknown -p=eframe-frontend
     - name: Run tests
       run: cargo test --verbose

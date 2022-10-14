@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cargo build --verbose -p=eframe_frontend -p=frontend_recording
+      run: cargo build --verbose -p=eframe-frontend -p=frontend_recording
     - name: BuildWasm
       run: cargo build --verbose --target=wasm32-unknown-unknown -p=eframe_frontend
     - name: Run tests

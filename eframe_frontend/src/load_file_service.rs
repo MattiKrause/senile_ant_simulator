@@ -10,6 +10,7 @@ use std::{
 
 use async_std::channel::{Receiver as ChannelReceiver};
 use ant_sim::ant_sim::AntSimulator;
+use ant_sim::ant_sim_frame::AntSim;
 use crate::AntSimFrame;
 use crate::service_handle::{ServiceHandle};
 use ant_sim_save::save_io::{DecodeSaveError, EncodeSaveError};
@@ -20,7 +21,9 @@ pub enum LoadFileMessages {
     #[cfg(not(target_arch = "wasm32"))]
     LoadFileMessage(Pin<Box<dyn 'static + Send + Future<Output = Option<rfd::FileHandle>>>>),
     #[cfg(not(target_arch = "wasm32"))]
-    SaveStateMessage(Pin<Box<dyn 'static + Send + Future<Output = Option<rfd::FileHandle>>>>, Box<AntSimulator<AntSimFrame>>)
+    SaveStateMessage(Pin<Box<dyn 'static + Send + Future<Output = Option<rfd::FileHandle>>>>, Box<AntSimulator<AntSimFrame>>),
+    #[cfg(target_arch = "wasm32")]
+    DownloadStateMessage(Box<AntSimulator<AntSimFrame>>),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -38,8 +41,13 @@ pub struct FileParsingError(pub String);
 pub enum LoadFileResponse{
     LoadedFile(Result<AntSimulator<crate::AntSimFrame>, FileParsingError>),
     UpdatePreferredPath(SyncPathBuf),
-    #[cfg(not(target_arch = "wasm32"))]
     SaveError(String)
+}
+
+impl LoadFileResponse {
+    fn save_error(err: String) -> Self {
+        Self::SaveError(format!("failed to save file: {err}"))
+    }
 }
 
 pub type LoadFileService = ChannelActor<LoadFileMessages>;
@@ -91,6 +99,13 @@ impl LoadFileService {
                     }
                     send_to = send_to.send(LoadFileResponse::UpdatePreferredPath(file.into())).await
                         .map_err(|(_, err)| WorkerError::SenderFailed(err))?
+                }
+                #[cfg(target_arch = "wasm32")]
+                LoadFileMessages::DownloadStateMessage(sim) => {
+                    if let Err(err) = Self::download_state(sim.as_ref()) {
+                        send_to = send_to.send(LoadFileResponse::save_error(err)).await
+                            .map_err(|(_, err)| WorkerError::SenderFailed(err))?;
+                    };
                 }
             };
 
@@ -150,6 +165,34 @@ impl LoadFileService {
         let mut file = file.await.map_err(|err| format!("failed to open file: {err}"))?;
         dbg!(repr.len());
         file.write_all(&repr).await.map_err(|err| format!("failed to write to file: {err}"))?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn download_state<A: AntSim>(sim: &AntSimulator<A>)  -> Result<(), String> {
+        let mut repr = Vec::new();
+        ant_sim_save::save_io::encode_save(&mut repr, sim).map_err(|err| match err {
+            EncodeSaveError::FailedToWrite(w) => format!("failed to write to buf: {w}"),
+            EncodeSaveError::InvalidData => format!("current game state is invalid")
+        })?;
+        Self::download_file(&repr, "save_state.txt")
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn download_file(file: &[u8], name: &str) -> Result<(), String> {
+        use eframe::wasm_bindgen::{JsValue, JsCast};
+        let window = web_sys::window().ok_or_else(|| String::from("not in a window context"))?;
+        let document = window.document().ok_or_else(|| String::from("no associated document"))?;
+        let blob = gloo_file::Blob::new(file);
+        let url = gloo_file::ObjectUrl::from(blob);
+        let element = document.create_element("a").map_err(|_| format!("failed to create download element", ))?;
+
+        let element = element.dyn_into::<web_sys::HtmlElement>().map_err(|_| String::from("unknown element type"))?;
+        element.set_attribute("hidden", "")
+            .and_then(|_| element.set_attribute("download", name))
+            .and_then(|_| element.set_attribute("href", &url))
+            .map_err(|_| format!("failed to set attributes on download"))?;
+        element.click();
         Ok(())
     }
 }

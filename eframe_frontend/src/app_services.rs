@@ -100,7 +100,6 @@ impl From<LoadFileResponse> for AppEvents {
             LoadFileResponse::UpdatePreferredPath(path) => {
                 Self::SetPreferredSearchPath(path)
             }
-            #[cfg(not(target_arch = "wasm32"))]
             LoadFileResponse::SaveError(err) => AppEvents::Error(err)
         }
     }
@@ -117,7 +116,6 @@ impl TryFrom<AppEvents> for LoadFileResponse {
             AppEvents::SetPreferredSearchPath(path) => {
                 Ok(LoadFileResponse::UpdatePreferredPath(path))
             }
-            #[cfg(not(target_arch = "wasm32"))]
             AppEvents::Error(err) if err.starts_with("failed to save")=> {
                 Ok(LoadFileResponse::SaveError(err))
             }

@@ -83,6 +83,19 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                         }
                     };
                 }
+                #[cfg(target_arch = "wasm32")]
+                if state.save_requested {
+                    state.save_requested = false;
+                    let file_service = resume_if_present!(state.services.load_file);
+                    match file_service.try_send(LoadFileMessages::DownloadStateMessage(sim)) {
+                        Ok((service, _)) => {
+                            state.services.load_file = Some(service);
+                        }
+                        Err(_) => {
+                            log::warn!("File services down!");
+                        }
+                    };
+                }
             }
             AppEvents::Error(err) => {
                 state.error_stack.push(err);

@@ -39,7 +39,9 @@ To get more help use `--help`.
 ### GUI Frontend
 #### Running the code
 The gui frontend allows you to view the simulation and alter the board.\
-the gui can be accessed on desktop and web. To compile it from source install [Rust](https://github.com/rust-lang/rust).
+the gui can be accessed on desktop and web:\
+To access the app on web go to https://mattikrause.github.io/senile_ant_simulator/ \
+To compile it from source first install [Rust](https://github.com/rust-lang/rust).\
 To compile the code for your current desktop version run:
 ```shell
 cargo build --release -p=eframe_frontend

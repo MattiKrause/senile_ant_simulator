@@ -34,8 +34,10 @@ jobs:
       - name: build eframe
         run: |
           cd eframe_frontend 
-          trunk build --release
+          trunk build --release --public-url "senile_ant_simulator"
           mv ./dist ../_site
+      - name: add no jekyll marker
+        run: touch _site/.nojekyll
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
 

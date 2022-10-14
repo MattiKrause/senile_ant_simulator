@@ -35,8 +35,9 @@ rfd = { version = "0.10.0", features = ["xdg-portal"], default-features=false }
 console_error_panic_hook = "0.1.6"
 tracing-wasm = "0.2"
 console_log = "0.2.0"
-web-sys = { version = "0.3.60", features = ["Performance", "Window"] }
+web-sys = { version = "0.3.60", features = ["Performance", "Window", "Document", "Element", "HtmlElement", "Blob", "Url"] }
 wasm-bindgen-futures = "0.4.33"
+gloo-file = "0.2.3"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

@@ -193,7 +193,6 @@ impl AppState {
         if input.modifiers.ctrl && input.key_pressed(egui::Key::L) {
             self.send_me(AppEvents::RequestLoadGame);
         }
-        #[cfg(not(target_arch = "wasm32"))]
         if input.modifiers.ctrl && input.key_pressed(egui::Key::S) {
             let _ = self.send_me(AppEvents::RequestSaveGame);
         }
@@ -374,13 +373,21 @@ impl eframe::App for AppState {
         // Tip: a good default choice is to just keep the `CentralPanel`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
-        #[cfg(not(target_arch = "wasm32"))] // no File->Quit on web pages!
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
+                ui.menu_button(RichText::new("File").size(16.0), |ui| {
+                    #[cfg(not(target_arch = "wasm32"))] // no File->Quit on web pages!
                     if ui.button("Quit").clicked() {
                         _frame.close();
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if ui.button("Load").clicked() {
+                        self.send_me(AppEvents::RequestLoadGame)
+                    }
+                    if ui.button("Save").clicked() {
+                        self.send_me(AppEvents::RequestSaveGame)
                     }
                 });
             });

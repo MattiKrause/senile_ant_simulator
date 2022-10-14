@@ -62,7 +62,8 @@ And open the link in console.
 #### Features
 To load a file in a non-web environment CTRL+L which should result in a file dialog opening, 
 then select the file. A simple file is available under `ant_sim_saves/ant_sim_test_state.txt`.\
-To save a file in a non-web environment press CTRL+S which should result in a file dialog opening.\
+To save a file in a non-web environment press CTRL+S which should result in a file dialog opening. 
+To save in a web Environment first press the File button in the upper left, then Save.\
 Otherwise a file can be loaded by dragging it onto the window. This feature is currently not available 
 for users of Linux with Wayland due to a known bug in a dependency.\
 Loading a file sets the app to edit mode, which allows you to:

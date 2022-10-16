@@ -63,6 +63,14 @@ impl AntSimCellImpl {
             }
         }
     }
+    #[inline]
+    pub const fn with_decreased_pheromone(&self, amount: u16) -> Self {
+        let dec_by = ((self.p1 != u16::MAX) & (self.p2 != u16::MAX)) as u16 * amount;
+        Self {
+            p1: self.p1.saturating_sub(dec_by),
+            p2: self.p2.saturating_sub(dec_by)
+        }
+    }
 }
 #[derive(Debug)]
 pub enum NewAntSimVecImplError {
@@ -99,6 +107,11 @@ impl AntSim for AntSimVecImpl {
     type Position = AntPositionImpl;
     //type Cells<'a> = CellIterImpl<'a> where Self: 'a;
     type Cells<'a> = core::iter::Map<core::iter::Enumerate<core::slice::Iter<'a, AntSimCellImpl>>, fn((usize, &'a AntSimCellImpl)) -> (AntSimCell, Self::Position)> where Self: 'a;
+    #[inline]
+    fn check_invariant(&self) {
+        assert!(!self.width.overflowing_mul(self.height).1);
+        assert_eq!(self.height * self.width, self.contains.len())
+    }
 
     fn check_compatible(&self, other: &Self) -> bool {
         self.contains.len() == other.contains.len() && self.height == other.height && self.width == other.width
@@ -116,7 +129,16 @@ impl AntSim for AntSimVecImpl {
     fn encode(&self, position: AntPosition) -> Option<AntPositionImpl> {
         let AntPosition { x, y } = position;
         if x < self.width && y < self.height {
-            Some(AntPositionImpl(y * self.width + x))
+            let ind = y * self.width + x;
+            let pos = AntPositionImpl(ind);
+            if !self.width.overflowing_mul(self.height).1 && self.width * self.height == self.contains.len() {
+                if ind >= self.contains.len() {
+                    unsafe {
+                        std::hint::unreachable_unchecked();
+                    }
+                }
+            }
+            Some(pos)
         } else {
             None
         }
@@ -138,6 +160,7 @@ impl AntSim for AntSimVecImpl {
 
     #[inline]
     fn cells(&self) -> Self::Cells<'_> {
+        self.check_invariant();
         self.contains.iter().enumerate().map(|(i, c)| (c.to_cell(), AntPositionImpl(i)))
     }
 
@@ -149,5 +172,10 @@ impl AntSim for AntSimVecImpl {
     #[inline]
     fn height(&self) -> usize {
         self.height
+    }
+
+    fn decay_pheromones_on(&self, on: &mut Self, by: u16) {
+        assert_eq!(self.contains.len(), on.contains.len());
+        self.contains.iter().zip(on.contains.iter_mut()).for_each(|(from, to)| *to = from.with_decreased_pheromone(by));
     }
 }

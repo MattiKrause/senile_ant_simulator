@@ -124,8 +124,10 @@ impl AntSim for AntSimFoldImpl {
 
     #[inline]
     fn cells(&self) -> Self::Cells<'_> {
+        self.check_invariant();
         #[inline]
         fn map_to_inner(m: &AntSimCellFold) -> &[AntSimCellImpl; FOLD_SIZE] { &m.0 }
+        #[inline]
         fn map_to_final((i, c): (usize, &AntSimCellImpl)) -> (AntSimCell, AntPositionImplFold) {
             (c.to_cell(), AntPositionImplFold(i))
         }
@@ -145,8 +147,18 @@ impl AntSim for AntSimFoldImpl {
     fn height(&self) -> usize {
         self.height
     }
+
+    fn decay_pheromones_on(&self, on: &mut Self, by: u16) {
+        assert_eq!(self.content.len(), on.content.len());
+        self.content
+            .flatten()
+            .iter()
+            .zip(on.content.flatten_mut().iter_mut())
+            .for_each(|(from, to)| *to = from.with_decreased_pheromone(by));
+    }
 }
 
+#[inline]
 fn div_round_up(div: usize, by: usize) -> usize {
     div / by + if div % by != 0 { 1 } else { 0 }
 }

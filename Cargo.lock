@@ -86,6 +86,7 @@ name = "ant_sim"
 version = "1.0.0"
 dependencies = [
  "criterion",
+ "rand",
  "rustc-hash",
 ]
 
@@ -1291,6 +1292,7 @@ dependencies = [
  "ant_sim_save",
  "chrono",
  "pixels",
+ "rand",
  "recorder",
  "rgba_adapter",
  "serde",

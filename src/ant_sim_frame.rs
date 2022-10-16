@@ -78,6 +78,7 @@ pub trait AntSim {
     type Position: Eq + Clone + Hash;
     type Cells<'a>: Iterator<Item=(AntSimCell, Self::Position)> where Self: 'a;
 
+    fn check_invariant(&self) {}
     fn check_compatible(&self, other: &Self) -> bool;
     #[must_use]
     fn decode(&self, position: &Self::Position) -> AntPosition;

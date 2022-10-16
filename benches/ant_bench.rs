@@ -38,15 +38,6 @@ fn bench_neighbors(c: &mut Criterion) {
         });
     }
     group.finish();
-    let mut group = c.benchmark_group("bench-unsafe");
-    for r in 1..=7 {
-        group.bench_function(BenchmarkId::new("range", r), |b| {
-            neighbors_bench(b, r, |pos, sim, b| {
-                ant_sim::ant_sim::neighbors(sim, &pos, b);
-            })
-        });
-    }
-    group.finish();
 }
 
 criterion_group!(neighbors, bench_neighbors);

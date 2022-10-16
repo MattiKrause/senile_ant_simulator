@@ -151,20 +151,3 @@ impl AntSim for AntSimVecImpl {
         self.height
     }
 }
-
-pub struct CellIterImpl<'a> {
-    sim: &'a AntSimVecImpl,
-    index: AntPositionImpl
-}
-
-impl <'a> Iterator for CellIterImpl<'a> {
-    type Item = (AntSimCell, AntPositionImpl);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cell = self.sim.contains.get(self.index.0)?;
-        let cell = cell.to_cell();
-        let res = Some((cell, self.index));
-        self.index.0 += 1;
-        return res;
-    }
-}

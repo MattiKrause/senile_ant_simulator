@@ -100,7 +100,7 @@ impl<A: AntSim> AntSimulator<A> {
             visual_buffer.push([].as_mut_slice());
         }
         update_into.config.visual_range.buffers(&mut visual_buffer);
-        Self::decay_pheromones(&self.sim, &mut update_into.sim, self.config.pheromone_decay_amount);
+        self.sim.decay_pheromones_on(&mut update_into.sim,self.config.pheromone_decay_amount);
         self.update_ants(&mut update_into.ants, &mut update_into.sim, &mut visual_buffer);
         Self::update_ant_trail(&self.ants, &mut update_into.sim);
         update_into.seed = self.seed.wrapping_add(self.config.seed_step);
@@ -119,6 +119,7 @@ impl<A: AntSim> AntSimulator<A> {
                 (amount, AntSimCell::Path { pheromone_food: NonMaxU16::new(0), pheromone_home: NonMaxU16::new(0) })
             }
         }
+        update_into.check_invariant();
         for (i, ant) in ants.iter_mut().enumerate() {
             let state = *ant.state();
             match (self.sim.cell(ant.position()).unwrap(), state) {
@@ -141,12 +142,14 @@ impl<A: AntSim> AntSimulator<A> {
     }
 
     fn decay_pheromones(from: &A, on_sim: &mut A, decay_amount: u16) {
+        #[inline]
         fn decay_path(p_food: NonMaxU16, p_home: NonMaxU16, decay_by: u16) -> AntSimCell {
             AntSimCell::Path {
                 pheromone_food: p_food.dec_by(decay_by),
                 pheromone_home: p_home.dec_by(decay_by),
             }
         }
+        on_sim.check_invariant();
         from.cells()
             .map(|(cell, pos): (AntSimCell, A::Position)| {
                 match cell {
@@ -162,6 +165,7 @@ impl<A: AntSim> AntSimulator<A> {
             });
     }
     fn update_ant_trail(old_ants: &[Ant<A>], update_into: &mut A) {
+        update_into.check_invariant();
         for ant in old_ants {
             let cell = update_into.cell(ant.position()).unwrap();
             let new_cell = match cell {

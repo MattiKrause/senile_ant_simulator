@@ -14,7 +14,7 @@ impl AntPosition {
     pub fn clamp_to(self, pos: AntPosition) -> AntPosition {
         Self {
             x: min(self.x, pos.x),
-            y: min(self.y, pos.y)
+            y: min(self.y, pos.y),
         }
     }
 }
@@ -95,4 +95,29 @@ pub trait AntSim {
     fn height(&self) -> usize;
     #[must_use]
     fn cell_count(&self) -> usize { self.width() * self.height() }
+
+
+    fn decay_pheromones_on(&self, on: &mut Self, decay_amount: u16) {
+        #[inline]
+        fn decay_path(p_food: NonMaxU16, p_home: NonMaxU16, decay_by: u16) -> AntSimCell {
+            AntSimCell::Path {
+                pheromone_food: p_food.dec_by(decay_by),
+                pheromone_home: p_home.dec_by(decay_by),
+            }
+        }
+        on.check_invariant();
+        self.cells()
+            .map(|(cell, pos): (AntSimCell, Self::Position)| {
+                match cell {
+                    AntSimCell::Path { pheromone_food, pheromone_home } => {
+                        let cell = decay_path(pheromone_food, pheromone_home, decay_amount);
+                        (cell, pos)
+                    }
+                    other => (other, pos)
+                }
+            })
+            .for_each(|(cell, pos)| {
+                on.set_cell(&pos, cell);
+            });
+    }
 }

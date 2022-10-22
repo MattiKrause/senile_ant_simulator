@@ -132,6 +132,12 @@ impl AntSim for AntSimVecImpl {
             let ind = y * self.width + x;
             let pos = AntPositionImpl(ind);
             if !self.width.overflowing_mul(self.height).1 && self.width * self.height == self.contains.len() {
+                /// # Safety
+                /// self.height is unsigned and y < self.height means that self.height must be larger than zero
+                /// same for x/self.width
+                /// y * self.width + x <= (self.height - 1) * self.width + (self.width - 1) = self.height * self.width - 1 < self.width * self.height = self.content.len()
+                /// since width * height does not overflow  and the result of the above is smaller than width * height,
+                /// the above calculation does not either. That means if this code is reached, y * self.width + x must be in bounds
                 if ind >= self.contains.len() {
                     unsafe {
                         std::hint::unreachable_unchecked();

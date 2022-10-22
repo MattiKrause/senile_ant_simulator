@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Not;
 use crate::ant_sim::neighbors;
-use crate::ant_sim_frame::{AntSim, AntSimCell};
+use crate::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 
 #[derive(Debug)]
 pub struct Ant<A: AntSim + ?Sized> {
@@ -78,61 +78,96 @@ impl<A: AntSim + ?Sized> Ant<A> {
         assert!(buffers.is_empty().not());
         assert_eq!(buffers[0].len(), 8);
 
+        let mut possibilities: [Option<(usize, f64)>; 8] = [None; 8];
+        let mut possibilities_write_head = 0usize;
+        let current_position = on.decode(self.position());
+
         neighbors(on, &self.position, buffers);
-        let mut new_position = None;
-        let mut new_score = f64::NEG_INFINITY;
         let last_pos = buffers[0].iter().zip(points.iter())
             .find(|(n, _pos)| (*n).as_ref() == Some(&self.last_position))
             .map_or((0.0, 0.0), |(_, p)| *p);
+
         let (p_food_weight, p_home_weight) = match self.state {
-            AntState::Foraging => (1.0, 0.0),
-            AntState::Hauling { .. } => (0.0, 1.0)
+            AntState::Foraging => (1.0, -0.1),
+            AntState::Hauling { .. } => (-0.1, 1.0)
         };
         {
-            let pos = buffers[0][0].as_ref();
-            let score = self.score_position2::<H, _, _>(pos, points[0], last_pos, seed, p_home_weight, p_food_weight, buffers, |buffer, r| {
+            let score = self.score_position2::<H, _, _>(p_home_weight, p_food_weight, buffers, |buffer, r| {
                 let start = buffer.len() - r * 2;
                 (0..(1 + r * 4))
                     .map(move |i| (i + start) % buffer.len())
                     .map(|idx| buffer[idx].as_ref().and_then(|pos| on.cell(pos).map(|cell| (pos, cell))))
             });
-            if let Some(score) = score {
-                new_position = buffers[0][0].as_ref();
-                new_score = score;
-            }
+            let query_res = Some(0).zip(score);
+            let query_head_add = if query_res.is_some() { 1 } else { 0 };
+            possibilities[possibilities_write_head] = query_res;
+            possibilities_write_head += query_head_add;
         }
-        let mut edges_off = 0;
         for (n, d_pos) in buffers[0].iter().enumerate().skip(1) {
             let is_edge = (n % 2) == 0;
             let l_mult = if is_edge { 4 } else { 2 };
-            let score = self.score_position2::<H, _, _>(d_pos.as_ref(), points[n], last_pos, seed, p_home_weight, p_food_weight, buffers, |buffer, r| {
+            let score = self.score_position2::<H, _, _>(p_home_weight, p_food_weight, buffers, |buffer, r| {
+                // This piece of code computes which positions in ring `r` are efficiently reachable from position ``
+                let edges_off = (n - 1) & (usize::MAX ^ 1);
+                // The start in each ring in the buffer is equals to `n` offset by `edges_off`
+                // because after each corner(indicated by n % 2 == 0), the start position offsets by two
                 let start = n + r * edges_off;
-                (start..(start + 1 + l_mult * r))
-                    .map(|idx| buffer[idx].as_ref().and_then(|pos| on.cell(pos).map(|cell| (pos, cell))))
+                let end = start + 1 + l_mult * r;
+                (start..end)
+                    .map(|idx| buffer[idx].as_ref())
+                    .map(|pos| pos.and_then(|pos| Some(pos).zip(on.cell(pos))))
+
             });
-            if let Some(score) = score {
-                if score > new_score {
-                    new_position = d_pos.as_ref();
-                    new_score = score;
-                }
-            }
-            if is_edge {
-                edges_off += 2;
-            }
+            let query_res = d_pos.as_ref().map(|_|n).zip(score);
+            let query_head_add = if query_res.is_some() { 1 } else { 0 };
+            possibilities[possibilities_write_head] = query_res;
+            possibilities_write_head += query_head_add;
         }
+        let (max_prob, min_prob) = possibilities[..possibilities_write_head]
+            .iter()
+            .flat_map(Option::as_ref)
+            .map(|(_, p)| *p)
+            .fold((0.0, 0.0), |a, b| (
+                core::cmp::max_by(a.0,b, |a, b| a.total_cmp(b)),
+                core::cmp::min_by(a.1,b, |a, b| a.total_cmp(b))
+            ));
+        let shift_prob = if min_prob < 0.0 { -min_prob } else { 0.0 };
+        let explore_powf = 1.5 - self.explore_weight;
+        let add_prob = (max_prob + shift_prob + 1.0).powf(explore_powf) / f64::from(possibilities_write_head as u32);
+        possibilities[..possibilities_write_head]
+            .iter_mut()
+            .filter_map(Option::as_mut)
+            .for_each(|(n, prob)| {
+                *prob += shift_prob;
+                *prob = prob.powf(explore_powf);
+                *prob += add_prob;
+                *prob *= Self::dist_of(points[*n], last_pos) + 1.0;
+            });
+        let largest_prob = possibilities[..possibilities_write_head].iter_mut()
+            .filter_map(Option::as_mut)
+            .fold(0.0f64, |acc, (_, prob)| {
+                *prob += acc;
+                *prob
+            });
+        let choice = random_f64_from::<H>(current_position, seed) * largest_prob;
+        let new_position = possibilities[..possibilities_write_head].iter()
+            .flat_map(Option::as_ref)
+            .filter(|(_, p)| *p >= choice)
+            .next()
+            .and_then(|(i, _)| buffers[0][*i].as_ref());
         self.last_position = std::mem::replace(&mut self.position, new_position.unwrap().clone());
     }
 
+    fn dist_of(a: (f64, f64), b: (f64, f64)) -> f64 {
+        let vec = (a.0 - b.0, a.1 - b.1);
+        let vec_len = f64::sqrt(vec.0 * vec.0 + vec.1 * vec.1);
+        return vec_len;
+    }
+
     fn score_position2<'p, H: Hasher + Default, PI: Iterator<Item=Option<(&'p A::Position, AntSimCell)>>, P: Fn(&'p [Option<A::Position>], usize) -> PI>(
-        &self, pos: Option<&A::Position>, this_points: (f64, f64), last_pos: (f64, f64), seed: u64, p_home_weight: f64, p_food_weight: f64, buffers: &'p [&'p mut [Option<A::Position>]], positions_of: P,
+        &self, p_home_weight: f64, p_food_weight: f64, buffers: &'p [&'p mut [Option<A::Position>]], positions_of: P,
     ) -> Option<f64> {
-        fn dist_of(a: (f64, f64), b: (f64, f64)) -> f64 {
-            let vec = (a.0 - b.0, a.1 - b.1);
-            let vec_len = f64::sqrt(vec.0 * vec.0 + vec.1 * vec.1);
-            return vec_len;
-        }
         let mut score = 0.0;
-        let score_pos = pos?;
         for r in 0..buffers.len() {
             let mut p_home = 0u32;
             let mut p_food = 0u32;
@@ -165,13 +200,19 @@ impl<A: AntSim + ?Sized> Ant<A> {
             let avg_score = (p_score + f64::from(special_count)) / count;
             score += avg_score / f64::from(buffers.len() as u32);
         }
-
-        let explore_score = f64::from(simple_hash2::<A, H>(score_pos, seed));
-        score = score * (1.0 - self.explore_weight) + self.explore_weight * explore_score;
-        let dist_from_last_pos = dist_of(this_points, last_pos);
-        score *= dist_from_last_pos;
+        debug_assert!(!score.is_nan());
         Some(score)
     }
+}
+
+fn random_f64_from<H: Hasher + Default>(a: AntPosition, b: u64) -> f64 {
+    let mut random_hash = H::default();
+    a.hash(&mut random_hash);
+    b.hash(&mut random_hash);
+    let random = random_hash.finish();
+    let b = 64;
+    let f = f64::MANTISSA_DIGITS - 1;
+    f64::from_bits((1 << (b - 2)) - (1 << f) + (random >> (b - f))) - 1.0
 }
 
 #[allow(clippy::cast_possible_truncation)]

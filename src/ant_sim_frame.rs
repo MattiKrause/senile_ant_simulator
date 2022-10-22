@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::hash::Hash;
 pub use non_max::*;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct AntPosition {
     pub x: usize,
     pub y: usize,

@@ -89,6 +89,9 @@ impl AntSimData {
         if self.env.ant_visual_range > 20 {
             return Err(String::from("ant visual range is to large"));
         }
+        if !self.env.points.iter().all(|(p1, p2)| p1.is_finite() && p2.is_finite()) {
+            return Err(String::from("points contains invalid numbers"));
+        }
         let config = AntSimConfig {
             distance_points: Box::new(self.env.points),
             food_haul_amount: self.env.haul_amount,

@@ -37,7 +37,8 @@ pub enum AppEvents {
     SetBrushType(BrushType),
     SetBrushMaterial(BrushMaterial),
     ImmediateNextFrame,
-    BoardClick([f32; 2])
+    BoardClick([f32; 2]),
+    RequestSetPointsRadius
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -81,6 +82,7 @@ pub struct GameStateEdit {
     pub width_text_buffer: String,
     pub height_text_buffer: String,
     pub seed_text_buffer: String,
+    pub points_radius_buf: f64,
     pub brush_circle_radius: usize,
 }
 
@@ -93,6 +95,7 @@ impl GameStateEdit {
             width_text_buffer: sim.sim.width().to_string(),
             height_text_buffer: sim.sim.height().to_string(),
             seed_text_buffer: sim.seed.to_string(),
+            points_radius_buf: try_classify_points_radius_from(&sim.config.distance_points).unwrap_or(f64::NAN),
             sim,
             brush_circle_radius: 1,
         }
@@ -274,7 +277,7 @@ impl AppState {
         } else {
             return;
         };
-        let GameStateEdit { sim, width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius, brush_material, .. } = e.as_mut();
+        let GameStateEdit { sim, width_text_buffer, height_text_buffer, seed_text_buffer, brush_circle_radius, brush_material, points_radius_buf,.. } = e.as_mut();
         let input_locked = &mut self.input_locked;
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
             ui.heading("Edit game values");
@@ -318,6 +321,11 @@ impl AppState {
                 ui.label("ant count: ");
                 let mut dmp = sim.ants.len().to_string();
                 ui.add_enabled(false, egui::TextEdit::singleline(&mut dmp).interactive(false));
+            });
+            ui.horizontal(|ui| {
+                ui.label("stubbornness");
+                let slider = egui::Slider::new(points_radius_buf, 0.0..=5.0).ui(ui);
+                slider.on_hover_text(String::from("Determines the likelihood, with which the ant will turn, a low value means the ant is more prone to running in cicrles"))
             });
             ui.horizontal(|ui| {
                 ui.label("brush radius: ");
@@ -506,7 +514,7 @@ fn default_ant_sim() -> AntSimulator<AntSimFrame> {
     }
 }
 
-static POINTS_R1: [(f64, f64); 8] = [
+pub static POINTS_R1: [(f64, f64); 8] = [
     (1.0, 0.0),
     (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2),
     (0.0, 1.0),
@@ -516,3 +524,15 @@ static POINTS_R1: [(f64, f64); 8] = [
     (-0.0, -1.0),
     (std::f64::consts::FRAC_1_SQRT_2, -std::f64::consts::FRAC_1_SQRT_2),
 ];
+
+pub fn try_classify_points_radius_from(p: &[(f64, f64); 8]) -> Option<f64> {
+    let mult_by = p[0].0;
+    let all_approx_eq = POINTS_R1.iter().zip(p.iter()).all(|((expa, expb), (a, b))|{
+        let amult = (a * mult_by);
+        let a_valid = *expa - 0.05 < amult && amult < *expa + 0.05;
+        let bmult = (b * mult_by);
+        let b_valid = *expb - 0.05 < bmult && bmult < *expb + 0.05;
+        a_valid && b_valid
+    });
+    all_approx_eq.then_some(mult_by)
+}

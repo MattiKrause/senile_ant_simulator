@@ -86,7 +86,8 @@ impl Debug for AppEvents {
             AppEvents::SetBrushType(_) => str_event!(SetBrushType),
             AppEvents::SetBrushMaterial(_) => str_event!(SetBrushMaterial),
             AppEvents::ImmediateNextFrame => str_event!(ImmediateNextFrame),
-            AppEvents::BoardClick(_) => str_event!(BoardClick)
+            AppEvents::BoardClick(_) => str_event!(BoardClick),
+            AppEvents::RequestSetPointsRadius => str_event!(RequestSetPointsRadius)
         }
     }
 }

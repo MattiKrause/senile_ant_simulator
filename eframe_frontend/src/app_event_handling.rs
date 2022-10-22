@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::mem::replace;
 use std::str::FromStr;
 use egui::{TextureFilter, TextureHandle};
@@ -7,7 +8,7 @@ use ant_sim::ant_sim_ant::{Ant, AntState};
 use ant_sim::ant_sim_frame::{AntPosition, AntSim, AntSimCell};
 use ant_sim::ant_sim_frame_impl::NewAntSimVecImplError;
 use crate::{AntSimFrame, AppState};
-use crate::app::{AppEvents, BrushMaterial, BrushType, GameState, GameStateEdit};
+use crate::app::{AppEvents, BrushMaterial, BrushType, GameState, GameStateEdit, POINTS_R1};
 use crate::load_file_service::LoadFileMessages;
 use crate::service_handle::{ServiceHandle};
 use crate::sim_update_service::{SimUpdaterMessage, SimUpdateService};
@@ -320,6 +321,19 @@ pub fn handle_events(state: &mut AppState, _ctx: &egui::Context) {
                 };
                 repaint(&edit.sim, &mut state.game_image);
 
+            }
+            AppEvents::RequestSetPointsRadius => {
+                let GameState::Edit(ref mut edit) = state.game_state else { continue };
+                let r = edit.points_radius_buf;
+                let res = r.is_finite().then_some(r).ok_or_else(|| "The points radius is not final");
+                let r= match res {
+                    Ok(r) => r,
+                    Err(err) => {
+                        state.error_stack.push(err.to_string());
+                        continue;
+                    }
+                };
+                edit.sim.config.distance_points = Box::new(POINTS_R1.map(|p| (p.0 *r, p.1 * r)));
             }
         }
     }
